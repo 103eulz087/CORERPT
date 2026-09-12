@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Read", "Edit", "Write", "Grep", "Glob",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet publish:*)",
+      "Bash(dotnet run:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

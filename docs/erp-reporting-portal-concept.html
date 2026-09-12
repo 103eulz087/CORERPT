@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CORE Reporting Portal — Design Concept</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --chill:#0C2A30;      /* sidebar - cold room */
+  --chill-2:#124049;
+  --ink:#12191C;
+  --frost:#F1F3F2;      /* canvas */
+  --card:#FFFFFF;
+  --line:#DDE2E1;
+  --steel:#63757A;      /* muted text */
+  --brine:#1F7A82;      /* primary teal */
+  --cut:#9E2233;        /* oxblood - risk only */
+  --tallow:#C98A12;     /* warning */
+  --sage:#2F7D5B;       /* good */
+  --r:3px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:'Archivo',system-ui,-apple-system,'Segoe UI',sans-serif;
+  background:var(--frost);color:var(--ink);
+  font-size:14px;line-height:1.45;
+  display:flex;min-height:100vh;
+}
+:focus-visible{outline:2px solid var(--brine);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+.mono{font-family:'IBM Plex Mono',ui-monospace,'Courier New',monospace;font-variant-numeric:tabular-nums}
+.eyebrow{
+  font-family:'Archivo Narrow','Arial Narrow',sans-serif;
+  text-transform:uppercase;letter-spacing:.14em;font-size:10.5px;font-weight:600;
+  color:var(--steel);
+}
+
+/* ---------- SIDEBAR ---------- */
+.side{
+  width:242px;flex:0 0 242px;background:var(--chill);color:#CFE0E1;
+  display:flex;flex-direction:column;position:sticky;top:0;height:100vh;
+}
+.brand{padding:18px 18px 14px;border-bottom:1px solid rgba(255,255,255,.09)}
+.brand .mark{
+  font-family:'Archivo Narrow','Arial Narrow',sans-serif;font-weight:700;
+  font-size:21px;letter-spacing:.06em;color:#fff;text-transform:uppercase;
+}
+.brand .mark span{color:var(--brine)}
+.brand .sub{font-size:11px;color:#7FA0A3;margin-top:2px}
+
+.rolepick{padding:14px 14px 10px}
+.rolepick .eyebrow{color:#6E9296;margin-bottom:7px}
+.rolepick select{
+  width:100%;background:var(--chill-2);color:#fff;border:1px solid rgba(255,255,255,.14);
+  border-radius:var(--r);padding:7px 8px;font-family:inherit;font-size:13px;
+}
+
+.nav{flex:1;overflow-y:auto;padding:6px 0 20px}
+.nav .grp{padding:15px 18px 5px;font-family:'Archivo Narrow','Arial Narrow',sans-serif;
+  text-transform:uppercase;letter-spacing:.14em;font-size:10px;font-weight:600;color:#5F8286}
+.nav a{
+  display:flex;align-items:center;gap:9px;padding:7px 18px;color:#C3D6D7;
+  text-decoration:none;font-size:13.5px;border-left:2px solid transparent;
+}
+.nav a:hover{background:rgba(255,255,255,.05);color:#fff}
+.nav a.on{background:rgba(31,122,130,.22);border-left-color:var(--brine);color:#fff;font-weight:500}
+.nav a .tag{margin-left:auto;font-size:10px;padding:1px 5px;border-radius:8px;background:var(--cut);color:#fff}
+.nav a .ic{width:14px;text-align:center;opacity:.75;font-size:12px}
+
+.sidefoot{padding:12px 18px;border-top:1px solid rgba(255,255,255,.09);font-size:11px;color:#6E9296}
+
+/* ---------- MAIN ---------- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+
+.topbar{
+  background:var(--card);border-bottom:1px solid var(--line);
+  padding:0 22px;height:54px;display:flex;align-items:center;gap:10px;
+  position:sticky;top:0;z-index:20;
+}
+.crumb{font-size:13px;color:var(--steel)}
+.crumb b{color:var(--ink);font-weight:600}
+.spacer{flex:1}
+.chip{
+  border:1px solid var(--line);background:#fff;border-radius:var(--r);
+  padding:5px 10px;font-size:12.5px;cursor:pointer;display:flex;gap:6px;align-items:center;
+  font-family:inherit;color:var(--ink);
+}
+.chip:hover{border-color:var(--brine)}
+.chip .k{color:var(--steel);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.stamp{font-size:11.5px;color:var(--steel);text-align:right;line-height:1.3}
+.stamp b{color:var(--sage);font-weight:600}
+.btn{
+  background:var(--brine);color:#fff;border:0;border-radius:var(--r);
+  padding:7px 13px;font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer;
+}
+.btn:hover{background:#175f66}
+.btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+.btn.ghost:hover{border-color:var(--brine);background:#fff}
+
+.wrap{padding:20px 22px 48px;max-width:1500px}
+.pagehead{display:flex;align-items:flex-end;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+.pagehead h1{
+  font-family:'Archivo Narrow','Arial Narrow',sans-serif;font-size:25px;
+  font-weight:700;letter-spacing:-.01em;text-transform:uppercase;
+}
+.pagehead p{font-size:13px;color:var(--steel);max-width:560px}
+
+/* ---------- FLOW BAR (signature) ---------- */
+.flow{
+  background:var(--chill);border-radius:var(--r);padding:15px 4px 13px;
+  margin-bottom:18px;display:flex;overflow-x:auto;
+}
+.flow .st{flex:1;min-width:132px;padding:0 15px;position:relative;color:#B9CFD1}
+.flow .st + .st{border-left:1px solid rgba(255,255,255,.1)}
+.flow .st .lbl{
+  font-family:'Archivo Narrow','Arial Narrow',sans-serif;text-transform:uppercase;
+  letter-spacing:.1em;font-size:10px;font-weight:600;color:#6E9296;margin-bottom:5px;
+}
+.flow .st .amt{font-size:17px;font-weight:600;color:#fff;letter-spacing:-.02em}
+.flow .st .cnt{font-size:11.5px;color:#7FA0A3;margin-top:2px}
+.flow .st .bar{height:3px;background:rgba(255,255,255,.14);margin-top:9px;border-radius:2px;overflow:hidden}
+.flow .st .bar i{display:block;height:100%;background:var(--brine)}
+.flow .st.alert .amt{color:#FF8494}
+.flow .st.alert .bar i{background:var(--cut)}
+.flow .st.alert .lbl{color:#FF8494}
+
+/* ---------- GRID + CARDS ---------- */
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  padding:14px 15px;grid-column:span 12;
+}
+.c3{grid-column:span 3}.c4{grid-column:span 4}.c6{grid-column:span 6}
+.c8{grid-column:span 8}.c12{grid-column:span 12}
+@media(max-width:1180px){.c3{grid-column:span 6}.c4,.c8{grid-column:span 12}}
+@media(max-width:760px){.c3,.c6{grid-column:span 12}}
+
+.card h3{
+  font-family:'Archivo Narrow','Arial Narrow',sans-serif;text-transform:uppercase;
+  letter-spacing:.1em;font-size:11px;font-weight:600;color:var(--steel);
+  margin-bottom:11px;display:flex;align-items:center;gap:7px;
+}
+.card h3 .drill{margin-left:auto;font-size:10px;color:var(--brine);letter-spacing:.04em;cursor:pointer}
+
+/* KPI */
+.kpi{cursor:pointer;transition:border-color .12s}
+.kpi:hover{border-color:var(--brine)}
+.kpi .val{font-size:27px;font-weight:600;letter-spacing:-.025em;line-height:1.1}
+.kpi .cur{font-size:15px;color:var(--steel);margin-right:1px;font-weight:500}
+.kpi .meta{margin-top:7px;font-size:12px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.delta{font-size:11.5px;font-weight:600;padding:1px 6px;border-radius:2px}
+.up{background:#E4F1EA;color:var(--sage)}
+.down{background:#F6E3E6;color:var(--cut)}
+.flat{background:#EDEFEF;color:var(--steel)}
+.kpi .note{color:var(--steel);font-size:11.5px}
+.kpi.risk .val{color:var(--cut)}
+.kpi .spark{margin-top:9px;height:26px;width:100%}
+
+/* bar list */
+.blist{display:flex;flex-direction:column;gap:9px}
+.brow{display:grid;grid-template-columns:1fr 78px;gap:10px;align-items:center;font-size:12.5px}
+.brow .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brow .track{grid-column:1/-1;height:5px;background:#EDEFEF;border-radius:3px;overflow:hidden;margin-top:-4px}
+.brow .track i{display:block;height:100%;background:var(--brine)}
+.brow .track i.warn{background:var(--tallow)}
+.brow .track i.bad{background:var(--cut)}
+.brow .v{text-align:right;font-size:12px;font-weight:500}
+
+/* table */
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{
+  font-family:'Archivo Narrow','Arial Narrow',sans-serif;text-transform:uppercase;
+  letter-spacing:.08em;font-size:10px;color:var(--steel);font-weight:600;
+  text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);
+}
+td{padding:7px 8px;border-bottom:1px solid #EFF2F1}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#F7F9F9;cursor:pointer}
+td.n,th.n{text-align:right}
+.pill{font-size:10.5px;padding:1px 6px;border-radius:9px;font-weight:600;white-space:nowrap}
+.p-bad{background:#F6E3E6;color:var(--cut)}
+.p-warn{background:#FBF0DA;color:var(--tallow)}
+.p-ok{background:#E4F1EA;color:var(--sage)}
+.p-neu{background:#EDEFEF;color:var(--steel)}
+
+/* aging buckets */
+.aging{display:flex;gap:2px;align-items:flex-end;height:112px;margin-bottom:8px}
+.aging .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:5px}
+.aging .b i{width:100%;background:var(--brine);border-radius:2px 2px 0 0;display:block}
+.aging .b.w i{background:var(--tallow)}
+.aging .b.d i{background:var(--cut)}
+.aging .b em{font-style:normal;font-size:10.5px;color:var(--steel);font-family:'IBM Plex Mono',monospace}
+.agingx{display:flex;gap:2px}
+.agingx div{flex:1;text-align:center;font-size:10px;color:var(--steel);
+  font-family:'Archivo Narrow','Arial Narrow',sans-serif;text-transform:uppercase;letter-spacing:.06em}
+
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--steel)}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend i{width:9px;height:9px;border-radius:2px;display:block}
+
+.note-strip{
+  background:#fff;border:1px solid var(--line);border-left:3px solid var(--tallow);
+  border-radius:var(--r);padding:10px 13px;font-size:12.5px;color:var(--steel);margin-bottom:16px;
+}
+.note-strip b{color:var(--ink)}
+
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+@media(max-width:900px){
+  body{display:block}
+  .side{position:static;width:100%;flex:none;height:auto}
+  .nav{max-height:none}
+}
+</style>
+</head>
+<body>
+
+<aside class="side">
+  <div class="brand">
+    <div class="mark">CORE<span>·</span>RPT</div>
+    <div class="sub">Reporting &amp; Analytics Portal</div>
+  </div>
+
+  <div class="rolepick">
+    <div class="eyebrow">Viewing as</div>
+    <label class="sr" for="role">Department view</label>
+    <select id="role">
+      <option value="exec">Executive / Management</option>
+      <option value="sales">Sales</option>
+      <option value="marketing">Marketing</option>
+      <option value="ops">Operations &amp; Inventory</option>
+      <option value="acct">Accounting &amp; Finance</option>
+      <option value="audit">Audit &amp; Compliance</option>
+    </select>
+  </div>
+
+  <nav class="nav" id="nav"></nav>
+
+  <div class="sidefoot">
+    Head Office · All branches<br>Signed in as demo user
+  </div>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <div class="crumb">Dashboards / <b id="crumb">Executive</b></div>
+    <div class="spacer"></div>
+    <button class="chip"><span class="k">Period</span> Jul 1 – Jul 24, 2026</button>
+    <button class="chip"><span class="k">Branch</span> All (6)</button>
+    <button class="chip"><span class="k">Compare</span> Prior month</button>
+    <div class="stamp">As of <span class="mono">09:41</span> · <b>fresh</b><br>auto-refresh 5 min</div>
+    <button class="btn" id="refresh">Refresh</button>
+    <button class="btn ghost">Export</button>
+  </header>
+
+  <div class="wrap">
+    <div class="pagehead">
+      <h1 id="ptitle">Executive</h1>
+      <p id="pdesc"></p>
+    </div>
+    <div id="board"></div>
+  </div>
+</main>
+
+<script>
+/* ---------- tiny render helpers ---------- */
+const el = (h) => { const d=document.createElement('div'); d.innerHTML=h.trim(); return d.firstChild; };
+const peso = n => '₱' + n.toLocaleString('en-PH');
+
+function spark(points, color){
+  const w=160,h=26,max=Math.max(...points),min=Math.min(...points);
+  const pts=points.map((p,i)=>`${(i/(points.length-1))*w},${h-((p-min)/((max-min)||1))*(h-4)-2}`).join(' ');
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function kpi(o){
+  const dc = o.dir==='up'?'up':o.dir==='down'?'down':'flat';
+  return `<div class="card c3 kpi ${o.risk?'risk':''}">
+    <h3>${o.label}</h3>
+    <div class="val"><span class="cur">${o.cur||''}</span>${o.value}</div>
+    <div class="meta">
+      ${o.delta?`<span class="delta ${dc}">${o.delta}</span>`:''}
+      <span class="note">${o.note||''}</span>
+    </div>
+    ${o.trend?spark(o.trend, o.risk?'#9E2233':'#1F7A82'):''}
+  </div>`;
+}
+
+function barlist(title, rows, span='c6', drill='View all'){
+  const max = Math.max(...rows.map(r=>r.v));
+  const body = rows.map(r=>`
+    <div class="brow"><div class="nm">${r.n}</div><div class="v">${r.d||r.v.toLocaleString()}</div>
+      <div class="track"><i class="${r.s||''}" style="width:${(r.v/max*100).toFixed(1)}%"></i></div></div>`).join('');
+  return `<div class="card ${span}"><h3>${title}<span class="drill">${drill} →</span></h3>
+    <div class="blist">${body}</div></div>`;
+}
+
+function table(title, cols, rows, span='c6', drill='Open report'){
+  const th = cols.map(c=>`<th class="${c.n?'n':''}">${c.t}</th>`).join('');
+  const tr = rows.map(r=>`<tr>${r.map((c,i)=>`<td class="${cols[i].n?'n':''} ${cols[i].m?'mono':''}">${c}</td>`).join('')}</tr>`).join('');
+  return `<div class="card ${span}"><h3>${title}<span class="drill">${drill} →</span></h3>
+    <table><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+
+function aging(title, buckets, span='c6'){
+  const max=Math.max(...buckets.map(b=>b.v));
+  const bars=buckets.map(b=>`<div class="b ${b.c||''}"><em>${b.l}</em>
+     <i style="height:${(b.v/max*88).toFixed(0)}%"></i></div>`).join('');
+  const labs=buckets.map(b=>`<div>${b.k}</div>`).join('');
+  return `<div class="card ${span}"><h3>${title}<span class="drill">Drill to invoices →</span></h3>
+    <div class="aging">${bars}</div><div class="agingx">${labs}</div>
+    <div class="legend">
+      <span><i style="background:#1F7A82"></i>Within terms</span>
+      <span><i style="background:#C98A12"></i>Watch</span>
+      <span><i style="background:#9E2233"></i>Past due</span>
+    </div></div>`;
+}
+
+function note(txt){ return `<div class="note-strip">${txt}</div>`; }
+
+/* ---------- navigation per role ---------- */
+const NAV = {
+  exec:[['Dashboards',[['Executive Overview',1],['Branch Scorecard'],['Profitability']]],
+        ['Explore',[['Sales Analytics'],['Inventory Position'],['Financial Position']]],
+        ['Reports',[['Report Center'],['Scheduled Reports'],['My Exports']]]],
+  sales:[['Dashboards',[['Sales Overview',1],['Agent Performance'],['Customer Activity']]],
+        ['Explore',[['Orders &amp; Fulfillment'],['Price &amp; Margin'],['Territory Coverage']]],
+        ['Reports',[['Sales Register'],['Customer Statement'],['Report Center']]]],
+  marketing:[['Dashboards',[['Market Overview',1],['Customer Mix'],['Product Penetration']]],
+        ['Explore',[['Segments'],['Basket Analysis'],['Campaign Lift']]],
+        ['Reports',[['Customer Master List'],['Report Center']]]],
+  ops:[['Dashboards',[['Operations Overview',1],['Stock Position'],['Shelf Life &amp; Aging',1]]],
+        ['Explore',[['Purchase Orders'],['Receiving'],['Transfer Requests',1],['Supplier Performance']]],
+        ['Reports',[['Stock Card'],['Movement Ledger'],['Report Center']]]],
+  acct:[['Dashboards',[['Finance Overview',1],['Receivables'],['Payables'],['Cash &amp; Banks']]],
+        ['Explore',[['AR Aging'],['AP Aging'],['Collections'],['Credit Limits',1]]],
+        ['Reports',[['Trial Balance'],['General Ledger'],['Income Statement'],['Balance Sheet'],['Bank Reconciliation'],['Report Center']]]],
+  audit:[['Dashboards',[['Control Overview',1],['Document Integrity'],['User Activity']]],
+        ['Explore',[['Edits &amp; Reversals',1],['Sequence Gaps'],['Out-of-Balance Tickets'],['Exception Log']]],
+        ['Reports',[['Audit Trail Export'],['Report Center']]]]
+};
+
+function renderNav(role){
+  document.getElementById('nav').innerHTML = NAV[role].map(([g,items])=>
+    `<div class="grp">${g}</div>` + items.map(([n,alert],i)=>
+      `<a href="#" class="${i===0&&g==='Dashboards'?'on':''}"><span class="ic">▪</span>${n}${alert?'<span class="tag">!</span>':''}</a>`
+    ).join('')
+  ).join('');
+}
+
+/* ---------- boards ---------- */
+const FLOW = `<div class="flow">
+  <div class="st"><div class="lbl">Open POs</div><div class="amt">₱18.4M</div><div class="cnt">23 orders · 4 awaiting approval</div><div class="bar"><i style="width:62%"></i></div></div>
+  <div class="st"><div class="lbl">In transit</div><div class="amt">₱9.1M</div><div class="cnt">7 shipments · 2 at customs</div><div class="bar"><i style="width:38%"></i></div></div>
+  <div class="st"><div class="lbl">On hand</div><div class="amt">₱31.7M</div><div class="cnt">6 branches · 41 days cover</div><div class="bar"><i style="width:84%"></i></div></div>
+  <div class="st"><div class="lbl">Open orders</div><div class="amt">₱6.3M</div><div class="cnt">88 orders · 12 short-picked</div><div class="bar"><i style="width:44%"></i></div></div>
+  <div class="st alert"><div class="lbl">Delivered, unbilled</div><div class="amt">₱2.8M</div><div class="cnt">31 DRs · 9 over 3 days old</div><div class="bar"><i style="width:71%"></i></div></div>
+  <div class="st alert"><div class="lbl">Receivables</div><div class="amt">₱24.6M</div><div class="cnt">₱5.9M past due · DSO 47</div><div class="bar"><i style="width:66%"></i></div></div>
+</div>`;
+
+const BOARDS = {
+exec: {
+  title:'Executive', desc:'Where the money is right now, and where it has stopped moving. Every figure drills through to its source documents.',
+  html: FLOW + `<div class="grid">
+    ${kpi({label:'Net sales MTD',cur:'₱',value:'42.8M',delta:'+8.4%',dir:'up',note:'vs Jun MTD',trend:[22,26,24,31,29,35,38,42]})}
+    ${kpi({label:'Gross margin',value:'22.6%',delta:'−1.2 pts',dir:'down',note:'target 24%',trend:[25,24.5,24,23.6,23.1,22.9,22.6,22.6]})}
+    ${kpi({label:'Cash position',cur:'₱',value:'11.2M',delta:'+2.1M',dir:'up',note:'5 bank accounts',trend:[8,9,8.5,10,9.5,10.8,11,11.2]})}
+    ${kpi({label:'Receivables past due',cur:'₱',value:'5.9M',delta:'+640K',dir:'down',risk:1,note:'24% of AR',trend:[4.1,4.4,4.6,5.0,5.2,5.5,5.8,5.9]})}
+    ${barlist('Branch contribution — net sales MTD',[
+      {n:'001 · Head Office / Manila',v:16.2,d:'₱16.2M'},
+      {n:'002 · Iloilo',v:7.4,d:'₱7.4M'},
+      {n:'003 · Cebu',v:6.9,d:'₱6.9M'},
+      {n:'004 · Davao',v:5.8,d:'₱5.8M'},
+      {n:'005 · Cagayan de Oro',v:3.6,d:'₱3.6M',s:'warn'},
+      {n:'006 · Bacolod',v:2.9,d:'₱2.9M',s:'warn'}],'c6')}
+    ${barlist('Margin by product category',[
+      {n:'Beef — primal cuts',v:28.1,d:'28.1%'},
+      {n:'Pork — portioned',v:24.7,d:'24.7%'},
+      {n:'Poultry',v:19.2,d:'19.2%',s:'warn'},
+      {n:'Lamb &amp; specialty',v:31.4,d:'31.4%'},
+      {n:'Processed / value-added',v:15.8,d:'15.8%',s:'bad'}],'c6')}
+    ${table('Top customers — MTD',[{t:'Customer'},{t:'Type'},{t:'Sales',n:1,m:1},{t:'Margin',n:1,m:1},{t:'Terms'}],[
+      ['Shangri-La Group','Hotel','₱3.42M','24.1%','<span class="pill p-ok">Current</span>'],
+      ['Marco Polo Hotels','Hotel','₱2.18M','22.8%','<span class="pill p-ok">Current</span>'],
+      ['Vikings Group','Restaurant','₱1.96M','19.4%','<span class="pill p-warn">31–60</span>'],
+      ['Max&rsquo;s Restaurant Corp','Restaurant','₱1.74M','21.2%','<span class="pill p-ok">Current</span>'],
+      ['Seda Hotels','Hotel','₱1.51M','25.6%','<span class="pill p-bad">90+</span>']],'c8')}
+    ${kpi({label:'Inventory value',cur:'₱',value:'31.7M',delta:'+4.2%',dir:'flat',note:'41 days cover'})}
+    ${kpi({label:'Payables due 7 days',cur:'₱',value:'8.4M',delta:'',dir:'flat',note:'11 vouchers'})}
+  </div>`
+},
+
+sales: {
+  title:'Sales', desc:'Agent quota, order flow, and accounts that have gone quiet. Scoped to your own territory unless you manage a team.',
+  html:`<div class="grid">
+    ${kpi({label:'Sales MTD',cur:'₱',value:'42.8M',delta:'82% of quota',dir:'up',note:'6 selling days left',trend:[5,11,17,22,28,33,38,42.8]})}
+    ${kpi({label:'Orders today',value:'47',delta:'+6',dir:'up',note:'12 awaiting confirmation'})}
+    ${kpi({label:'Average order value',cur:'₱',value:'91,240',delta:'+3.1%',dir:'up',note:'vs prior month'})}
+    ${kpi({label:'Order fill rate',value:'93.4%',delta:'−2.0 pts',dir:'down',risk:1,note:'12 short-picked lines'})}
+    ${barlist('Agent leaderboard — quota attainment',[
+      {n:'R. Delgado · NCR North',v:118,d:'118%'},
+      {n:'M. Santos · NCR South',v:104,d:'104%'},
+      {n:'J. Aquino · Cebu',v:96,d:'96%'},
+      {n:'L. Torres · Davao',v:81,d:'81%',s:'warn'},
+      {n:'A. Ramos · Iloilo',v:74,d:'74%',s:'warn'},
+      {n:'C. Bautista · CDO',v:52,d:'52%',s:'bad'}],'c6')}
+    ${barlist('Sales by jurisdiction',[
+      {n:'Metro Manila',v:18.9,d:'₱18.9M'},
+      {n:'Central Visayas',v:8.1,d:'₱8.1M'},
+      {n:'Western Visayas',v:6.4,d:'₱6.4M'},
+      {n:'Davao Region',v:5.5,d:'₱5.5M'},
+      {n:'Northern Mindanao',v:3.9,d:'₱3.9M'}],'c6')}
+    ${table('Dormant accounts — no order in 30+ days',[{t:'Customer'},{t:'Agent'},{t:'Last order'},{t:'Avg monthly',n:1,m:1},{t:'Status'}],[
+      ['Cafe Ilang-Ilang','R. Delgado','12 Jun 2026','₱412,000','<span class="pill p-bad">42 days</span>'],
+      ['Gerry&rsquo;s Grill — Cebu','J. Aquino','18 Jun 2026','₱268,000','<span class="pill p-bad">36 days</span>'],
+      ['Bacolod Chicken Inasal','A. Ramos','21 Jun 2026','₱187,000','<span class="pill p-warn">33 days</span>'],
+      ['Hotel Elizabeth','L. Torres','23 Jun 2026','₱154,000','<span class="pill p-warn">31 days</span>']],'c8','Assign follow-up')}
+    ${kpi({label:'New accounts MTD',value:'9',delta:'+4',dir:'up',note:'3 pending credit approval'})}
+    ${kpi({label:'Returns &amp; rejections',cur:'₱',value:'318K',delta:'+22%',dir:'down',risk:1,note:'0.74% of sales'})}
+  </div>`
+},
+
+marketing: {
+  title:'Marketing', desc:'Who buys what, how concentrated the book is, and which products have room to spread across the existing customer base.',
+  html:`<div class="grid">
+    ${kpi({label:'Active customers',value:'412',delta:'+11',dir:'up',note:'ordered in last 60 days'})}
+    ${kpi({label:'New vs reactivated',value:'9 / 14',delta:'',dir:'flat',note:'this month'})}
+    ${kpi({label:'Top-10 concentration',value:'38.4%',delta:'+1.9 pts',dir:'down',risk:1,note:'of total sales'})}
+    ${kpi({label:'Avg SKUs per customer',value:'6.8',delta:'+0.4',dir:'up',note:'of 94 active SKUs'})}
+    ${barlist('Customer segment mix — sales share',[
+      {n:'Hotels &amp; resorts',v:41,d:'41%'},
+      {n:'Casual dining chains',v:26,d:'26%'},
+      {n:'Fine dining / independent',v:14,d:'14%'},
+      {n:'Institutional &amp; catering',v:12,d:'12%'},
+      {n:'Retail / re-sellers',v:7,d:'7%'}],'c6')}
+    ${barlist('Product penetration — % of active customers buying',[
+      {n:'Beef — primal cuts',v:78,d:'78%'},
+      {n:'Pork — portioned',v:64,d:'64%'},
+      {n:'Poultry',v:52,d:'52%'},
+      {n:'Lamb &amp; specialty',v:23,d:'23%',s:'warn'},
+      {n:'Processed / value-added',v:14,d:'14%',s:'bad'}],'c6')}
+    ${table('Cross-sell opportunity — buys A, not B',[{t:'Customer'},{t:'Segment'},{t:'Buys'},{t:'Missing'},{t:'Est. monthly',n:1,m:1}],[
+      ['Marco Polo Hotels','Hotel','Beef, Pork','Lamb &amp; specialty','₱240,000'],
+      ['Vikings Group','Casual chain','Beef, Poultry','Processed','₱185,000'],
+      ['Seda Hotels','Hotel','Beef','Pork, Poultry','₱310,000'],
+      ['Kuya J Restaurant','Casual chain','Pork','Beef primal','₱126,000']],'c8','Build call list')}
+    ${kpi({label:'Coverage gap',value:'27',delta:'',dir:'flat',note:'prospects in territory, no agent assigned'})}
+    ${kpi({label:'Promo lift',value:'+12.4%',delta:'',dir:'up',note:'lamb push, 14-day window'})}
+  </div>`
+},
+
+ops: {
+  title:'Operations &amp; Inventory', desc:'Stock cover, shelf life, and the transfer queue. Shelf life is the widget that pays for this portal — frozen protein written off is margin gone.',
+  html: note('<b>Shelf-life first.</b> ₱1.84M of stock enters its final 30 days within the next two weeks. The near-expiry widget is pinned to the top for every operations user and drives a daily alert.') + `<div class="grid">
+    ${kpi({label:'Stock on hand',cur:'₱',value:'31.7M',delta:'+4.2%',dir:'flat',note:'6 branches'})}
+    ${kpi({label:'Days cover',value:'41',delta:'−3',dir:'flat',note:'target 35–45'})}
+    ${kpi({label:'Near expiry (&lt;30 d)',cur:'₱',value:'1.84M',delta:'+380K',dir:'down',risk:1,note:'5.8% of stock'})}
+    ${kpi({label:'Pending transfer requests',value:'14',delta:'',dir:'flat',note:'6 over 48 hrs old'})}
+    ${aging('Shelf-life aging — value by remaining life',[
+      {l:'12.4M',k:'90+ d',v:12.4},{l:'9.1M',k:'61–90',v:9.1},{l:'8.3M',k:'31–60',v:8.3},
+      {l:'1.2M',k:'15–30',v:1.2,c:'w'},{l:'0.6M',k:'8–14',v:0.6,c:'d'},{l:'0.1M',k:'≤7 d',v:0.1,c:'d'}],'c6')}
+    ${barlist('Stock cover by branch — days',[
+      {n:'001 · Head Office',v:48,d:'48 d'},
+      {n:'002 · Iloilo',v:39,d:'39 d'},
+      {n:'003 · Cebu',v:36,d:'36 d'},
+      {n:'004 · Davao',v:22,d:'22 d',s:'warn'},
+      {n:'005 · Cagayan de Oro',v:11,d:'11 d',s:'bad'},
+      {n:'006 · Bacolod',v:44,d:'44 d'}],'c6')}
+    ${table('Transfer request queue',[{t:'Ref'},{t:'From → To'},{t:'Items',n:1},{t:'Value',n:1,m:1},{t:'Age'},{t:'Status'}],[
+      ['<span class="mono">TR-2026-0418</span>','HO → CDO','12','₱684,000','3 d','<span class="pill p-bad">Awaiting approval</span>'],
+      ['<span class="mono">TR-2026-0421</span>','HO → Davao','8','₱412,000','2 d','<span class="pill p-warn">Approved, not picked</span>'],
+      ['<span class="mono">TR-2026-0424</span>','Cebu → Bacolod','5','₱196,000','1 d','<span class="pill p-neu">In transit</span>'],
+      ['<span class="mono">TR-2026-0427</span>','HO → Iloilo','17','₱903,000','4 h','<span class="pill p-ok">Received</span>']],'c8')}
+    ${kpi({label:'Receiving variance',value:'0.42%',delta:'−0.1 pt',dir:'up',note:'qty received vs PO'})}
+    ${kpi({label:'Supplier lead time',value:'34 d',delta:'+2 d',dir:'down',note:'avg, order to receipt'})}
+  </div>`
+},
+
+acct: {
+  title:'Accounting &amp; Finance', desc:'Both aging books side by side, credit exposure, and what is still unposted. Buckets follow your existing terms setup, not a fixed 30/60/90.',
+  html:`<div class="grid">
+    ${kpi({label:'Receivables outstanding',cur:'₱',value:'24.6M',delta:'+3.1%',dir:'flat',note:'412 open invoices'})}
+    ${kpi({label:'Past due',cur:'₱',value:'5.9M',delta:'+640K',dir:'down',risk:1,note:'24% of AR'})}
+    ${kpi({label:'Days sales outstanding',value:'47',delta:'+4 d',dir:'down',risk:1,note:'weighted avg terms 30'})}
+    ${kpi({label:'Payables due 7 days',cur:'₱',value:'8.4M',delta:'',dir:'flat',note:'11 vouchers ready'})}
+    ${aging('Receivables aging',[
+      {l:'18.7M',k:'Current',v:18.7},{l:'3.1M',k:'1–30',v:3.1,c:'w'},{l:'1.4M',k:'31–60',v:1.4,c:'d'},
+      {l:'0.9M',k:'61–90',v:0.9,c:'d'},{l:'0.5M',k:'90+',v:0.5,c:'d'}],'c6')}
+    ${aging('Payables aging',[
+      {l:'14.2M',k:'Current',v:14.2},{l:'4.8M',k:'1–30',v:4.8,c:'w'},{l:'1.1M',k:'31–60',v:1.1,c:'d'},
+      {l:'0.3M',k:'61–90',v:0.3,c:'d'},{l:'0.1M',k:'90+',v:0.1,c:'d'}],'c6')}
+    ${table('Credit limit exposure',[{t:'Customer'},{t:'Terms'},{t:'Limit',n:1,m:1},{t:'Exposure',n:1,m:1},{t:'Used',n:1},{t:'Oldest'}],[
+      ['Vikings Group','30 days','₱2,500,000','₱2,840,000','<span class="pill p-bad">114%</span>','54 d'],
+      ['Seda Hotels','45 days','₱3,000,000','₱2,910,000','<span class="pill p-warn">97%</span>','92 d'],
+      ['Kuya J Restaurant','30 days','₱1,200,000','₱1,046,000','<span class="pill p-warn">87%</span>','28 d'],
+      ['Shangri-La Group','60 days','₱6,000,000','₱3,420,000','<span class="pill p-ok">57%</span>','19 d']],'c8','Open credit review')}
+    ${kpi({label:'Cash &amp; bank balances',cur:'₱',value:'11.2M',delta:'+2.1M',dir:'up',note:'5 accounts'})}
+    ${kpi({label:'Unreconciled bank items',value:'38',delta:'',dir:'flat',risk:1,note:'oldest 22 days'})}
+    ${barlist('Collections vs billings — last 6 months (₱M)',[
+      {n:'February · billed 38.1 / collected 36.4',v:95.5,d:'95.5%'},
+      {n:'March · billed 41.2 / collected 39.8',v:96.6,d:'96.6%'},
+      {n:'April · billed 39.7 / collected 36.1',v:90.9,d:'90.9%',s:'warn'},
+      {n:'May · billed 44.3 / collected 41.9',v:94.6,d:'94.6%'},
+      {n:'June · billed 46.8 / collected 42.2',v:90.2,d:'90.2%',s:'warn'},
+      {n:'July MTD · billed 42.8 / collected 36.9',v:86.2,d:'86.2%',s:'bad'}],'c12','Open collections report')}
+  </div>`
+},
+
+audit: {
+  title:'Audit &amp; Compliance', desc:'Exceptions only. This view starts from what looks wrong rather than what looks normal, and every row opens the exact document and the user who touched it.',
+  html: note('Built around how your ERP actually posts: edits that repost under the same reference number, cross-branch journals that net to zero without balancing per branch, and reversals on already-paid documents. These are the places a control gap would hide.') + `<div class="grid">
+    ${kpi({label:'Out-of-balance tickets',value:'0',delta:'',dir:'flat',note:'across all branches'})}
+    ${kpi({label:'Edits &amp; reposts',value:'23',delta:'+9',dir:'down',risk:1,note:'this month, 4 users'})}
+    ${kpi({label:'Reversals',value:'6',delta:'−2',dir:'up',note:'2 on paid documents'})}
+    ${kpi({label:'Postings outside period',value:'3',delta:'',dir:'flat',risk:1,note:'backdated entries'})}
+    ${table('Edit &amp; reversal log',[{t:'Reference'},{t:'Document'},{t:'Action'},{t:'User'},{t:'Amount Δ',n:1,m:1},{t:'When'}],[
+      ['<span class="mono">JV-2026-0714</span>','Manual JV — Multi-branch','<span class="pill p-warn">Edited</span>','acctg.mvillar','₱+42,000','23 Jul 14:12'],
+      ['<span class="mono">EXP-2026-1188</span>','Expense (batch)','<span class="pill p-warn">Edited</span>','acctg.jreyes','₱−8,400','23 Jul 11:04'],
+      ['<span class="mono">CV-2026-0902</span>','Supplier voucher','<span class="pill p-bad">Reversed</span>','acctg.mvillar','₱−316,000','22 Jul 16:48'],
+      ['<span class="mono">EXP-2026-1173</span>','Expense (single)','<span class="pill p-bad">Reversed, paid</span>','acctg.dcruz','₱−94,500','21 Jul 09:30']],'c8')}
+    ${barlist('Exceptions by type',[
+      {n:'Cross-branch JV (per-branch imbalance allowed)',v:11,d:'11',s:'warn'},
+      {n:'Withholding tax overridden at payment',v:8,d:'8',s:'warn'},
+      {n:'Discount posted to non-standard account',v:5,d:'5',s:'bad'},
+      {n:'Payment exceeding invoice balance',v:2,d:'2',s:'bad'},
+      {n:'Negative on-hand quantity',v:1,d:'1',s:'bad'}],'c4','View exceptions')}
+    ${table('Document sequence gaps',[{t:'Series'},{t:'Branch'},{t:'Expected'},{t:'Missing'},{t:'Status'}],[
+      ['Official Receipt','003 · Cebu','<span class="mono">OR-0004512</span>','<span class="mono">OR-0004508</span>','<span class="pill p-bad">Unexplained</span>'],
+      ['Delivery Receipt','001 · Head Office','<span class="mono">DR-0019340</span>','<span class="mono">DR-0019337</span>','<span class="pill p-warn">Voided, no reason</span>'],
+      ['Check Voucher','002 · Iloilo','<span class="mono">CV-0002211</span>','—','<span class="pill p-ok">Complete</span>']],'c6')}
+    ${table('User activity — last 24 hours',[{t:'User'},{t:'Role'},{t:'Posts',n:1},{t:'Edits',n:1},{t:'Reversals',n:1},{t:'Flag'}],[
+      ['acctg.mvillar','Senior accountant','41','7','2','<span class="pill p-warn">High edit rate</span>'],
+      ['acctg.jreyes','Accountant','36','2','0','<span class="pill p-ok">Normal</span>'],
+      ['acctg.dcruz','Accountant','19','1','1','<span class="pill p-ok">Normal</span>'],
+      ['sales.coord01','Sales coordinator','88','0','0','<span class="pill p-ok">Normal</span>']],'c6')}
+  </div>`
+}
+};
+
+/* ---------- wire up ---------- */
+const sel = document.getElementById('role');
+function paint(){
+  const r = sel.value, b = BOARDS[r];
+  renderNav(r);
+  document.getElementById('crumb').innerHTML = b.title;
+  document.getElementById('ptitle').innerHTML = b.title;
+  document.getElementById('pdesc').textContent = b.desc;
+  document.getElementById('board').innerHTML = b.html;
+  window.scrollTo({top:0});
+}
+sel.addEventListener('change', paint);
+document.getElementById('refresh').addEventListener('click', e=>{
+  const t=e.target; t.textContent='Refreshing…'; t.disabled=true;
+  setTimeout(()=>{t.textContent='Refresh'; t.disabled=false;
+    document.querySelector('.stamp').innerHTML='As of <span class="mono">09:47</span> · <b>fresh</b><br>auto-refresh 5 min';},700);
+});
+document.getElementById('nav').addEventListener('click', e=>{
+  const a=e.target.closest('a'); if(!a) return; e.preventDefault();
+  document.querySelectorAll('#nav a').forEach(x=>x.classList.remove('on')); a.classList.add('on');
+});
+paint();
+</script>
+</body>
+</html>

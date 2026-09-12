@@ -1,0 +1,169 @@
+@model IReadOnlyList<ReportDefinition>
+@{
+    ViewData["Title"] = "Report Center";
+    var branches = ViewBag.Branches as IReadOnlyList<Branch> ?? Array.Empty<Branch>();
+    var accounts = ViewBag.Accounts as IReadOnlyList<AccountOption> ?? Array.Empty<AccountOption>();
+    var categories = Model.Select(d => d.Category).Distinct().ToList();
+
+    string KindClass(ReportRenderStyle s) => s switch
+    {
+        ReportRenderStyle.Statement => "stmt",
+        ReportRenderStyle.PivotStatement => "pivot",
+        _ => "grid"
+    };
+
+    string ParamList(ReportDefinition d)
+    {
+        var flags = new List<string>();
+        if (d.HasParameter(ReportParameterKind.AsOfDate)) flags.Add("AsOfDate");
+        if (d.HasParameter(ReportParameterKind.DateRange)) flags.Add("DateRange");
+        if (d.HasParameter(ReportParameterKind.Branch)) flags.Add("Branch");
+        if (d.HasParameter(ReportParameterKind.Account)) flags.Add("Account");
+        return string.Join(",", flags);
+    }
+
+    string ParamChips(ReportDefinition d)
+    {
+        var chips = new List<string>();
+        if (d.HasParameter(ReportParameterKind.AsOfDate)) chips.Add("As-of date");
+        if (d.HasParameter(ReportParameterKind.DateRange)) chips.Add("Date range");
+        if (d.HasParameter(ReportParameterKind.Branch)) chips.Add("Branch / All");
+        if (d.HasParameter(ReportParameterKind.Account)) chips.Add(d.AccountRequired ? "Account (required)" : "Account / All");
+        return string.Join("", chips.Select(c => $"<span>{c}</span>"));
+    }
+}
+
+<div class="pagehead" id="rcLanding">
+    <h1>Report Center</h1>
+    <p>Every accounting report in one place. Pick one, set the period and scope, and run.
+       Results show on screen and export to Excel.</p>
+</div>
+
+@* ================= LANDING: card grid grouped by category ================= *@
+<section id="rcLandingSection">
+    @foreach (var cat in categories)
+    {
+        <div class="rc-group">
+            <div class="eyebrow" style="margin-bottom:8px;">@cat</div>
+            <div class="rc-cardgrid">
+                @foreach (var d in Model.Where(x => x.Category == cat))
+                {
+                    <div class="rcard" tabindex="0" role="button"
+                         data-proc="@d.ProcName"
+                         data-title="@d.Title"
+                         data-desc="@d.Description"
+                         data-render="@d.RenderStyle"
+                         data-params="@ParamList(d)"
+                         data-account-required="@d.AccountRequired.ToString().ToLowerInvariant()"
+                         data-zero-activity="@d.SupportsIncludeZeroActivity.ToString().ToLowerInvariant()"
+                         data-live-activity="@d.SupportsIncludeLiveActivity.ToString().ToLowerInvariant()">
+                        <span class="kind @KindClass(d.RenderStyle)">@d.RenderStyle</span>
+                        <h3>@d.Title</h3>
+                        <p>@d.Description</p>
+                        <div class="params">@Html.Raw(ParamChips(d))</div>
+                        <div class="mono sp">@d.ProcName</div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</section>
+
+@* ================= RUNNER: param bar + results ================= *@
+<section id="rcRunnerSection" style="display:none">
+    <div class="pagehead">
+        <button class="btn ghost sm" id="rcBackBtn" type="button">&larr; All reports</button>
+        <h1 id="rcTitle" style="margin-top:10px"></h1>
+        <p id="rcDesc"></p>
+    </div>
+
+    <div class="parambar">
+        <div class="field" id="fldAsOfDate" style="display:none">
+            <label>As of date</label>
+            <input type="date" id="pAsOfDate" />
+        </div>
+        <div class="field" id="fldDateFrom" style="display:none">
+            <label>From</label>
+            <input type="date" id="pDateFrom" />
+        </div>
+        <div class="field" id="fldDateTo" style="display:none">
+            <label>To</label>
+            <input type="date" id="pDateTo" />
+        </div>
+        <div class="field" id="fldBranch" style="display:none">
+            <label>Branch</label>
+            <select id="pBranch">
+                <option value="">All Branches (Consolidated)</option>
+                @foreach (var b in branches)
+                {
+                    <option value="@b.BranchCode" data-name="@b.BranchName">@b.DisplayText</option>
+                }
+            </select>
+        </div>
+        <div class="field acct" id="fldAccount" style="display:none">
+            <label id="lblAccount">Account</label>
+            <input type="text" id="pAccount" placeholder="e.g. 101030101" list="pAccountList" autocomplete="off" />
+            <datalist id="pAccountList">
+                @foreach (var a in accounts)
+                {
+                    <option value="@a.AccountCode">@a.AccountCode &mdash; @a.Description</option>
+                }
+            </datalist>
+        </div>
+        <div class="field chk" id="fldZeroActivity" style="display:none">
+            <input type="checkbox" id="pIncludeZeroActivity" />
+            <label for="pIncludeZeroActivity">Include zero-activity accounts</label>
+        </div>
+        <div class="field chk" id="fldLiveActivity" style="display:none">
+            <input type="checkbox" id="pIncludeLiveActivity" />
+            <label for="pIncludeLiveActivity">Include live (unposted) activity</label>
+        </div>
+        <div class="run">
+            <button class="btn ghost sm" id="rcResetBtn" type="button">Reset</button>
+            <button class="btn sm" id="rcRunBtn" type="button">Run report</button>
+        </div>
+    </div>
+
+    <div class="note-strip bad" id="rcValidation" style="display:none"></div>
+
+    <div id="rcResultsWrap" style="display:none">
+        <div class="resbar">
+            <div class="meta" id="rcMeta"></div>
+            <div class="exp">
+                <button class="btn ghost sm" id="rcExportBtn" type="button">Export Excel</button>
+            </div>
+        </div>
+        <div id="rcResults"></div>
+    </div>
+</section>
+
+@* ================= TICKET DRILLDOWN MODAL ================= *@
+<div class="modalveil" id="tkVeil" style="display:none">
+    <div class="modalbox" role="dialog" aria-modal="true" aria-labelledby="tkTitle">
+        <div class="modalhead">
+            <div>
+                <h2 id="tkTitle">Ticket detail</h2>
+                <div class="sub" id="tkSub"></div>
+            </div>
+            <button class="x" id="tkCloseBtn" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modalbody" id="tkBody"></div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    window.CORE_REPORT_CATALOG = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(
+        Model.Select(d => new
+        {
+            d.ProcName,
+            d.Title,
+            d.Description,
+            RenderStyle = d.RenderStyle.ToString(),
+            d.AccountRequired,
+            d.SupportsIncludeZeroActivity,
+            d.SupportsIncludeLiveActivity
+        })));
+</script>
+<script src="~/js/report-center.js" asp-append-version="true"></script>
+}

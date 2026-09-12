@@ -1,0 +1,344 @@
+@model FinanceOverviewViewModel
+@{
+    ViewData["Title"] = "Finance Overview";
+
+    string Peso0(decimal v) => "₱" + v.ToString("#,##0");
+    var Dash = "–";
+
+    var arTotal = Model.Ar.BranchTotals.FirstOrDefault(b => b.Label == "TOTAL")
+                  ?? new AgingBucketTotals();
+    var arPastDue = arTotal.PastDue31To60 + arTotal.PastDue61To90 + arTotal.PastDue90Plus;
+    var apTotal = Model.Ap.CompanyTotal;
+
+    string ExposurePillClass(decimal? pct)
+    {
+        if (!pct.HasValue) return "p-neu";
+        if (pct > 100) return "p-bad";
+        if (pct >= 85) return "p-warn";
+        return "p-ok";
+    }
+}
+
+<div class="pagehead">
+    <h1>Finance Overview</h1>
+    <p>AR and AP aging side by side, with credit exposure by customer.
+       Aged as of @Model.AsOfDate.ToString("MMM d, yyyy"). Period: @Model.Filter.PeriodLabel.</p>
+</div>
+
+<div class="grid">
+    @* ---------------- KPI tiles ---------------- *@
+    <div class="card c4 kpi">
+        <h3>AR outstanding</h3>
+        <div class="val mono" id="kpiArOutstanding">@Peso0(arTotal.TotalOutstanding)</div>
+        <div class="meta"><span class="note">@Model.Ar.Customers.Count customers with a balance</span></div>
+    </div>
+
+    <div class="card c4 kpi risk">
+        <h3>AR past due</h3>
+        <div class="val mono" id="kpiArPastDue">@Peso0(arPastDue)</div>
+        <div class="meta">
+            <span class="note">
+                31&ndash;60 / 61&ndash;90 / 90+ &mdash;
+                @(arTotal.TotalOutstanding > 0
+                    ? (arPastDue / arTotal.TotalOutstanding * 100m).ToString("0.0") + "% of AR"
+                    : "0% of AR")
+            </span>
+        </div>
+    </div>
+
+    <div class="card c4 kpi">
+        <h3>Days sales outstanding</h3>
+        <div class="val mono" id="kpiDso">@(Model.Ar.Dso.Dso.HasValue ? Model.Ar.Dso.Dso.Value.ToString("0") : Dash)</div>
+        <div class="meta">
+            <span class="note">
+                trailing @Model.Ar.Dso.TrailingDays days &middot;
+                net sales @Peso0(Model.Ar.Dso.NetSales90Day)
+            </span>
+        </div>
+    </div>
+
+    @* ---------------- Today's branch activity ---------------- *@
+    <div class="card c12 kpi">
+        <h3>Today's branch activity
+            <span class="mono" style="text-transform:none;letter-spacing:normal;font-weight:500;color:var(--muted)">
+                Today, @DateTime.Now.ToString("MMM d, yyyy")
+            </span>
+            <a class="drill" href="#" data-toggle-details="dailyActivityDetailCard">Show details &rarr;</a>
+        </h3>
+        <div style="display:flex;gap:36px;flex-wrap:wrap">
+            <div>
+                <div class="val mono" id="dailyActivityCount">@Model.DailyActivity.CompanyTotal.InvoiceCount</div>
+                <div class="note">invoices today</div>
+            </div>
+            <div>
+                <div class="val mono" id="dailyActivityTotal">@Peso0(Model.DailyActivity.CompanyTotal.TotalAmount)</div>
+                <div class="note">total amount</div>
+            </div>
+        </div>
+        <div id="dailyActivityDetailCard" style="display:none; margin-top:14px">
+            <table id="dailyActivityTable">
+                <thead>
+                <tr>
+                    <th>Branch</th>
+                    <th>Branch name</th>
+                    <th class="n">Invoices</th>
+                    <th class="n">Total amount</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var b in Model.DailyActivity.Branches)
+                {
+                    <tr>
+                        <td class="mono">@b.BranchCode</td>
+                        <td>@b.BranchName</td>
+                        <td class="n mono">@b.InvoiceCount</td>
+                        <td class="n mono">@Peso0(b.TotalAmount)</td>
+                    </tr>
+                }
+                </tbody>
+                <tfoot>
+                <tr>
+                    <td colspan="2">Total</td>
+                    <td class="n mono">@Model.DailyActivity.CompanyTotal.InvoiceCount</td>
+                    <td class="n mono">@Peso0(Model.DailyActivity.CompanyTotal.TotalAmount)</td>
+                </tr>
+                </tfoot>
+            </table>
+        </div>
+    </div>
+
+    @* ---------------- Aging bucket charts ---------------- *@
+    <div class="card c6">
+        <h3>Receivables aging
+            <a class="drill" href="#" data-toggle-details="arDetailCard">Show details &rarr;</a>
+            <a class="drill" href="@Url.Action("ExportArAging", "Accounting")">Export &rarr;</a>
+        </h3>
+        <div id="arAgingChart" style="height:220px;"></div>
+        <div class="legend">
+            <span><i style="background:#3B82F6"></i>Current</span>
+            <span><i style="background:#FBBF24"></i>1&ndash;30</span>
+            <span><i style="background:#F87171"></i>Past due 31+</span>
+        </div>
+    </div>
+
+    <div class="card c6">
+        <h3>Payables aging
+            <a class="drill" href="#" data-toggle-details="apDetailCard">Show details &rarr;</a>
+            <a class="drill" href="@Url.Action("ExportApAging", "Accounting")">Export &rarr;</a>
+        </h3>
+        <div id="apAgingChart" style="height:220px;"></div>
+        <div class="legend">
+            <span><i style="background:#3B82F6"></i>Current</span>
+            <span><i style="background:#FBBF24"></i>1&ndash;30</span>
+            <span><i style="background:#F87171"></i>Past due 31+</span>
+        </div>
+    </div>
+
+    <div class="card c6">
+        <h3>Expense payables aging
+            <a class="drill" href="#" data-toggle-details="apExpDetailCard">Show details &rarr;</a>
+            <a class="drill" href="@Url.Action("ExportApExpAging", "Accounting")">Export &rarr;</a>
+        </h3>
+        <div id="apExpAgingChart" style="height:220px;"></div>
+        <div class="legend">
+            <span><i style="background:#3B82F6"></i>Current</span>
+            <span><i style="background:#FBBF24"></i>1&ndash;30</span>
+            <span><i style="background:#F87171"></i>Past due 31+</span>
+        </div>
+    </div>
+
+    @* ---------------- Credit exposure ---------------- *@
+    <div class="card c12">
+        <h3>Credit limit exposure &mdash; by customer
+            <a class="drill" href="#" data-toggle-details="creditExposureCard">Show details &rarr;</a>
+        </h3>
+        <div id="creditExposureCard" style="display:none">
+        <table id="creditExposureTable">
+            <thead>
+            <tr>
+                <th>Customer</th>
+                <th>Branch</th>
+                <th>Term</th>
+                <th class="n">Credit limit</th>
+                <th class="n">Exposure %</th>
+                <th class="n">Oldest age</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var c in Model.Ar.Customers.OrderByDescending(x => x.ExposurePct ?? -1))
+            {
+                <tr>
+                    <td>@c.CustomerName <span class="mono" style="color:var(--muted)">(@c.CustomerKey)</span></td>
+                    <td class="mono">@c.BranchCode</td>
+                    <td class="mono">@(c.Term.HasValue ? c.Term.Value + "d" : Dash)</td>
+                    <td class="n mono">@(c.CreditLimit.HasValue ? Peso0(c.CreditLimit.Value) : Dash)</td>
+                    <td class="n">
+                        @if (c.ExposurePct.HasValue)
+                        {
+                            <span class="pill @ExposurePillClass(c.ExposurePct)">@c.ExposurePct.Value.ToString("0.0")%</span>
+                        }
+                        else
+                        {
+                            <span class="mono">&mdash;</span>
+                        }
+                    </td>
+                    <td class="n mono">@c.OldestAgeDays d</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    @* ---------------- AR customer table ---------------- *@
+    <div class="card c12" id="arDetailCard" style="display:none">
+        <h3>AR customer aging</h3>
+        <table id="arCustomerTable">
+            <thead>
+            <tr>
+                <th>Customer</th>
+                <th>Branch</th>
+                <th class="n">Current</th>
+                <th class="n">1&ndash;30</th>
+                <th class="n">31&ndash;60</th>
+                <th class="n">61&ndash;90</th>
+                <th class="n">90+</th>
+                <th class="n">Total</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var c in Model.Ar.Customers.OrderByDescending(x => x.TotalOutstanding))
+            {
+                <tr>
+                    <td>@c.CustomerName <span class="mono" style="color:var(--muted)">(@c.CustomerKey)</span></td>
+                    <td class="mono">@c.BranchCode</td>
+                    <td class="n mono">@Peso0(c.CurrentAmount)</td>
+                    <td class="n mono">@Peso0(c.PastDue1To30)</td>
+                    <td class="n mono">@Peso0(c.PastDue31To60)</td>
+                    <td class="n mono">@Peso0(c.PastDue61To90)</td>
+                    <td class="n mono">@Peso0(c.PastDue90Plus)</td>
+                    <td class="n mono"><b>@Peso0(c.TotalOutstanding)</b></td>
+                </tr>
+            }
+            </tbody>
+            <tfoot>
+            <tr>
+                <td colspan="2">Total</td>
+                <td class="n mono">@Peso0(arTotal.CurrentAmount)</td>
+                <td class="n mono">@Peso0(arTotal.PastDue1To30)</td>
+                <td class="n mono">@Peso0(arTotal.PastDue31To60)</td>
+                <td class="n mono">@Peso0(arTotal.PastDue61To90)</td>
+                <td class="n mono">@Peso0(arTotal.PastDue90Plus)</td>
+                <td class="n mono">@Peso0(arTotal.TotalOutstanding)</td>
+            </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    @* ---------------- AP supplier table ---------------- *@
+    <div class="card c12" id="apDetailCard" style="display:none">
+        <h3>AP supplier aging</h3>
+        <table id="apSupplierTable">
+            <thead>
+            <tr>
+                <th>Supplier</th>
+                <th class="n">Current</th>
+                <th class="n">1&ndash;30</th>
+                <th class="n">31&ndash;60</th>
+                <th class="n">61&ndash;90</th>
+                <th class="n">90+</th>
+                <th class="n">Total</th>
+                <th class="n">Oldest age</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var s in Model.Ap.Suppliers.OrderByDescending(x => x.TotalOutstanding))
+            {
+                <tr>
+                    <td>@s.SupplierName <span class="mono" style="color:var(--muted)">(@s.SupplierId)</span></td>
+                    <td class="n mono">@Peso0(s.CurrentAmount)</td>
+                    <td class="n mono">@Peso0(s.PastDue1To30)</td>
+                    <td class="n mono">@Peso0(s.PastDue31To60)</td>
+                    <td class="n mono">@Peso0(s.PastDue61To90)</td>
+                    <td class="n mono">@Peso0(s.PastDue90Plus)</td>
+                    <td class="n mono"><b>@Peso0(s.TotalOutstanding)</b></td>
+                    <td class="n mono">@s.OldestAgeDays d</td>
+                </tr>
+            }
+            </tbody>
+            <tfoot>
+            <tr>
+                <td>Total</td>
+                <td class="n mono">@Peso0(apTotal.CurrentAmount)</td>
+                <td class="n mono">@Peso0(apTotal.PastDue1To30)</td>
+                <td class="n mono">@Peso0(apTotal.PastDue31To60)</td>
+                <td class="n mono">@Peso0(apTotal.PastDue61To90)</td>
+                <td class="n mono">@Peso0(apTotal.PastDue90Plus)</td>
+                <td class="n mono">@Peso0(apTotal.TotalOutstanding)</td>
+                <td></td>
+            </tr>
+            </tfoot>
+        </table>
+    </div>
+
+    @* ---------------- AP-Expense supplier table ---------------- *@
+    <div class="card c12" id="apExpDetailCard" style="display:none">
+        <h3>Expense payables aging &mdash; by supplier</h3>
+        <table id="apExpSupplierTable">
+            <thead>
+            <tr>
+                <th>Supplier</th>
+                <th class="n">Current</th>
+                <th class="n">1&ndash;30</th>
+                <th class="n">31&ndash;60</th>
+                <th class="n">61&ndash;90</th>
+                <th class="n">90+</th>
+                <th class="n">Total</th>
+                <th class="n">Oldest age</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var s in Model.ApExp.Suppliers.OrderByDescending(x => x.TotalOutstanding))
+            {
+                <tr>
+                    <td>@s.SupplierName <span class="mono" style="color:var(--muted)">(@s.SupplierId)</span></td>
+                    <td class="n mono">@Peso0(s.CurrentAmount)</td>
+                    <td class="n mono">@Peso0(s.PastDue1To30)</td>
+                    <td class="n mono">@Peso0(s.PastDue31To60)</td>
+                    <td class="n mono">@Peso0(s.PastDue61To90)</td>
+                    <td class="n mono">@Peso0(s.PastDue90Plus)</td>
+                    <td class="n mono"><b>@Peso0(s.TotalOutstanding)</b></td>
+                    <td class="n mono">@s.OldestAgeDays d</td>
+                </tr>
+            }
+            </tbody>
+            <tfoot>
+            <tr>
+                <td>Total</td>
+                <td class="n mono">@Peso0(Model.ApExp.CompanyTotal.CurrentAmount)</td>
+                <td class="n mono">@Peso0(Model.ApExp.CompanyTotal.PastDue1To30)</td>
+                <td class="n mono">@Peso0(Model.ApExp.CompanyTotal.PastDue31To60)</td>
+                <td class="n mono">@Peso0(Model.ApExp.CompanyTotal.PastDue61To90)</td>
+                <td class="n mono">@Peso0(Model.ApExp.CompanyTotal.PastDue90Plus)</td>
+                <td class="n mono">@Peso0(Model.ApExp.CompanyTotal.TotalOutstanding)</td>
+                <td></td>
+            </tr>
+            </tfoot>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    window.CORE_AR_CUSTOMERS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Ar.Customers));
+    window.CORE_AR_BRANCH_TOTALS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Ar.BranchTotals));
+    window.CORE_AR_DSO = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Ar.Dso));
+    window.CORE_AP_SUPPLIERS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Ap.Suppliers));
+    window.CORE_AP_COMPANY_TOTAL = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Ap.CompanyTotal));
+    window.CORE_APEXP_SUPPLIERS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.ApExp.Suppliers));
+    window.CORE_APEXP_COMPANY_TOTAL = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.ApExp.CompanyTotal));
+    window.CORE_DAILY_BRANCHES = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DailyActivity.Branches));
+    window.CORE_DAILY_COMPANY_TOTAL = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.DailyActivity.CompanyTotal));
+</script>
+<script src="~/js/accounting-dashboard.js" asp-append-version="true"></script>
+}

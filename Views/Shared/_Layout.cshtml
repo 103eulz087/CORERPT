@@ -1,0 +1,139 @@
+@using System.Security.Claims
+@{
+    var filter = ViewBag.Filter as FilterContext
+                 ?? (Model as ExecutiveDashboardViewModel)?.Filter
+                 ?? FilterContext.CurrentMonth();
+
+    // Any dashboard-style view can hand the layout its filter/branch list via
+    // ViewBag (see Health/FinanceOverview controller actions) instead of the
+    // layout special-casing one view model type by name.
+    var branches = (Model as ExecutiveDashboardViewModel)?.AllBranches
+                   ?? ViewBag.Branches as IReadOnlyList<Branch>
+                   ?? Array.Empty<Branch>() as IReadOnlyList<Branch>;
+
+    bool InRole(string r) => User.IsInRole(r);
+    var currentAction = ViewContext.RouteData.Values["action"]?.ToString() ?? "";
+    var currentController = ViewContext.RouteData.Values["controller"]?.ToString() ?? "";
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] &middot; CORE Reporting</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+
+<aside class="side">
+    <div class="brand">
+        <div class="mark">CORE<span>&middot;</span>RPT</div>
+        <div class="sub">Reporting &amp; Analytics Portal</div>
+    </div>
+
+    <nav class="nav">
+        @if (InRole("Executive") || InRole("Accounting") || InRole("Audit"))
+        {
+            <div class="grp">Dashboards</div>
+            @if (InRole("Executive"))
+            {
+                <a href="@Url.Action("Executive", "Dashboard")"
+                   class="@(currentAction == "Executive" && currentController == "Dashboard" ? "on" : "")">
+                    <span class="ic">&#9642;</span>Executive Overview
+                </a>
+            }
+            @if (InRole("Accounting") || InRole("Audit") || InRole("Executive"))
+            {
+                <a href="@Url.Action("FinanceOverview", "Accounting")"
+                   class="@(currentAction == "FinanceOverview" && currentController == "Accounting" ? "on" : "")">
+                    <span class="ic">&#9642;</span>Finance Overview
+                </a>
+            }
+        }
+
+        @if (InRole("Accounting") || InRole("Audit") || InRole("Executive"))
+        {
+            <div class="grp">Data Quality</div>
+            <a href="@Url.Action("Health", "Dashboard")"
+               class="@(currentAction == "Health" ? "on" : "")">
+                <span class="ic">&#9642;</span>Health Check
+            </a>
+        }
+
+        @if (InRole("Accounting") || InRole("Audit") || InRole("Executive"))
+        {
+            <div class="grp">Reports</div>
+            <a href="@Url.Action("ReportCenter", "ReportCenter")"
+               class="@(currentController == "ReportCenter" ? "on" : "")">
+                <span class="ic">&#9642;</span>Report Center
+            </a>
+        }
+
+        <div class="grp">Exports</div>
+        <a href="@Url.Action("ExportBranchScorecard", "Dashboard")">
+            <span class="ic">&#9642;</span>Branch Scorecard (Excel)
+        </a>
+    </nav>
+
+    <div class="sidefoot">
+        @User.Identity?.Name<br />
+        @string.Join(", ", User.FindAll(ClaimTypes.Role).Select(c => c.Value))
+        <br />
+        <a href="@Url.Action("Logout", "Account")" class="logout">Sign out</a>
+    </div>
+</aside>
+
+<main class="main">
+    <header class="topbar">
+        <div class="crumb">Dashboards / <b>@ViewData["Title"]</b></div>
+        <div class="spacer"></div>
+
+        <form method="post" asp-controller="Dashboard" asp-action="ApplyFilter" class="filterform">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="returnUrl" value="@Context.Request.Path" />
+
+            <label class="chip">
+                <span class="k">From</span>
+                <input type="date" name="dateFrom" value="@filter.DateFrom.ToString("yyyy-MM-dd")" />
+            </label>
+            <label class="chip">
+                <span class="k">To</span>
+                <input type="date" name="dateTo" value="@filter.DateTo.ToString("yyyy-MM-dd")" />
+            </label>
+
+            @if (branches.Count > 0)
+            {
+                <label class="chip">
+                    <span class="k">Branch</span>
+                    <select name="branchCodes" multiple size="1" class="branchpick">
+                        @foreach (var b in branches)
+                        {
+                            <option value="@b.BranchCode"
+                                    selected="@(filter.BranchCodes.Contains(b.BranchCode))">
+                                @b.DisplayText
+                            </option>
+                        }
+                    </select>
+                </label>
+            }
+
+            <button type="submit" class="btn ghost">Apply</button>
+        </form>
+
+        <div class="stamp">
+            As of <span class="mono" id="asOf">@DateTime.Now.ToString("HH:mm")</span>
+            &middot; <b id="freshFlag">fresh</b><br />
+            auto-refresh 5 min
+        </div>
+        <button class="btn" id="refreshBtn">Refresh</button>
+    </header>
+
+    <div class="wrap">
+        @RenderBody()
+    </div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

@@ -1,0 +1,94 @@
+@model IReadOnlyList<HealthCheckItem>
+@{
+    ViewData["Title"] = "Health Check";
+    var filter = ViewBag.Filter as FilterContext;
+    var criticals = Model.Count(m => m.Severity == "CRITICAL" && !m.IsClean);
+}
+
+<div class="pagehead">
+    <h1>Health Check</h1>
+    <p>These run against the same ledger the dashboards read. If anything here
+       is non-zero, treat the figures on the Executive board as provisional.</p>
+</div>
+
+@if (criticals == 0)
+{
+    <div class="note-strip ok"><b>All critical checks clean.</b>
+        Dashboard figures reconcile to the ledger for @filter?.PeriodLabel.</div>
+}
+else
+{
+    <div class="note-strip bad"><b>@criticals critical finding(s).</b>
+        Resolve these before relying on any reported total.</div>
+}
+
+<div class="grid">
+    <div class="card c12">
+        <h3>Checks for @filter?.PeriodLabel</h3>
+        <table>
+            <thead>
+            <tr>
+                <th>Check</th>
+                <th>Severity</th>
+                <th class="n">Findings</th>
+                <th class="n">Value at risk</th>
+                <th>Status</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var item in Model)
+            {
+                var clickable = item.Findings > 0;
+                <tr class="@(clickable ? "hc-row-clickable" : "")" data-seq="@item.Seq"
+                    data-name="@item.CheckName"
+                    tabindex="@(clickable ? "0" : null)"
+                    role="@(clickable ? "button" : null)"
+                    aria-label="@(clickable ? "View details for " + item.CheckName : null)">
+                    <td>@item.CheckName</td>
+                    <td>@item.Severity</td>
+                    <td class="n mono">@item.Findings.ToString("#,##0")</td>
+                    <td class="n mono">
+                        @(item.ValueAtRisk.HasValue
+                            ? "\u20B1" + item.ValueAtRisk.Value.ToString("#,##0.00")
+                            : "\u2013")
+                    </td>
+                    <td>
+                        @if (item.IsClean)
+                        {
+                            <span class="pill p-ok">Clean</span>
+                        }
+                        else if (item.Severity == "CRITICAL")
+                        {
+                            <span class="pill p-bad">Action needed</span>
+                            <span class="hc-view-hint">View details &rsaquo;</span>
+                        }
+                        else
+                        {
+                            <span class="pill p-warn">Review</span>
+                            <span class="hc-view-hint">View details &rsaquo;</span>
+                        }
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@* ================= HEALTH CHECK DETAIL MODAL ================= *@
+<div class="modalveil" id="hcVeil" style="display:none">
+    <div class="modalbox" role="dialog" aria-modal="true" aria-labelledby="hcTitle">
+        <div class="modalhead">
+            <div>
+                <h2 id="hcTitle">Check detail</h2>
+                <div class="sub" id="hcSub"></div>
+            </div>
+            <button class="x" id="hcCloseBtn" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modalbody" id="hcBody"></div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/health-check.js" asp-append-version="true"></script>
+}

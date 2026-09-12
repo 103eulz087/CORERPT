@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CORE Reporting — Accounting Dashboard Design</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+:root{--chill:#0C2A30;--chill-2:#124049;--ink:#12191C;--frost:#F1F3F2;--card:#FFFFFF;
+  --line:#DDE2E1;--steel:#63757A;--brine:#1F7A82;--cut:#9E2233;--tallow:#C98A12;--sage:#2F7D5B;--r:3px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Archivo',system-ui,sans-serif;background:var(--frost);color:var(--ink);
+  font-size:14px;line-height:1.45;display:flex;min-height:100vh}
+.mono{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums}
+
+.side{width:242px;flex:0 0 242px;background:var(--chill);color:#CFE0E1;display:flex;
+  flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:18px;border-bottom:1px solid rgba(255,255,255,.09)}
+.brand .mark{font-family:'Archivo Narrow',sans-serif;font-weight:700;font-size:21px;
+  letter-spacing:.06em;color:#fff;text-transform:uppercase}
+.brand .mark span{color:var(--brine)}
+.brand .sub{font-size:11px;color:#7FA0A3;margin-top:2px}
+.rolechip{margin:12px 18px 0;font-size:11px;color:#7FA0A3;background:var(--chill-2);
+  padding:5px 9px;border-radius:var(--r);display:inline-block}
+.nav{flex:1;padding:10px 0}
+.nav .grp{padding:15px 18px 5px;font-family:'Archivo Narrow',sans-serif;text-transform:uppercase;
+  letter-spacing:.14em;font-size:10px;font-weight:600;color:#5F8286}
+.nav a{display:flex;align-items:center;gap:9px;padding:7px 18px;color:#C3D6D7;
+  text-decoration:none;font-size:13px;border-left:2px solid transparent}
+.nav a.on{background:rgba(31,122,130,.22);border-left-color:var(--brine);color:#fff;font-weight:500}
+.nav .ic{width:13px;text-align:center;opacity:.7;font-size:11px}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.topbar{background:var(--card);border-bottom:1px solid var(--line);padding:0 22px;height:54px;
+  display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20}
+.crumb{font-size:13px;color:var(--steel)}.crumb b{color:var(--ink);font-weight:600}
+.spacer{flex:1}
+.chip{border:1px solid var(--line);background:#fff;border-radius:var(--r);padding:5px 10px;
+  font-size:12.5px;display:flex;gap:6px;align-items:center}
+.chip .k{color:var(--steel);font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+.stamp{font-size:11.5px;color:var(--steel);text-align:right;line-height:1.3}.stamp b{color:var(--sage)}
+.btn{background:var(--brine);color:#fff;border:0;border-radius:var(--r);padding:7px 13px;
+  font-family:inherit;font-size:12.5px;font-weight:500;cursor:pointer}
+.btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+
+.wrap{padding:20px 22px 48px;max-width:1500px;width:100%}
+.pagehead{margin-bottom:16px}
+.pagehead h1{font-family:'Archivo Narrow',sans-serif;font-size:25px;font-weight:700;text-transform:uppercase}
+.pagehead p{font-size:13px;color:var(--steel);max-width:640px;margin-top:2px}
+
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 15px;grid-column:span 12}
+.c3{grid-column:span 3}.c6{grid-column:span 6}.c12{grid-column:span 12}
+@media(max-width:1180px){.c3{grid-column:span 6}}
+@media(max-width:760px){.c3,.c6{grid-column:span 12}}
+.card h3{font-family:'Archivo Narrow',sans-serif;text-transform:uppercase;letter-spacing:.1em;
+  font-size:11px;font-weight:600;color:var(--steel);margin-bottom:11px;display:flex;align-items:center;gap:7px}
+.card h3 .drill{margin-left:auto;font-size:10px;color:var(--brine);letter-spacing:.04em;cursor:pointer}
+
+.kpi .val{font-size:27px;font-weight:600;letter-spacing:-.025em;line-height:1.1}
+.kpi.risk .val{color:var(--cut)}
+.kpi .cur{font-size:15px;color:var(--steel);font-weight:500}
+.kpi .meta{margin-top:7px;font-size:12px;display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.delta{font-size:11.5px;font-weight:600;padding:1px 6px;border-radius:2px}
+.up{background:#E4F1EA;color:var(--sage)}.down{background:#F6E3E6;color:var(--cut)}.flat{background:#EDEFEF;color:var(--steel)}
+.kpi .note{color:var(--steel);font-size:11.5px}
+
+.aging{display:flex;gap:3px;align-items:flex-end;height:132px;margin-bottom:8px}
+.aging .b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px}
+.aging .b i{width:100%;border-radius:2px 2px 0 0;display:block}
+.aging .b em{font-style:normal;font-size:11px;color:var(--steel);font-family:'IBM Plex Mono',monospace}
+.agingx{display:flex;gap:3px}
+.agingx div{flex:1;text-align:center;font-size:10px;color:var(--steel);
+  font-family:'Archivo Narrow',sans-serif;text-transform:uppercase;letter-spacing:.06em}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;font-size:11.5px;color:var(--steel)}
+.legend span{display:flex;align-items:center;gap:5px}.legend i{width:9px;height:9px;border-radius:2px;display:block}
+
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{font-family:'Archivo Narrow',sans-serif;text-transform:uppercase;letter-spacing:.08em;
+  font-size:10px;color:var(--steel);font-weight:600;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid #EFF2F1}tr:last-child td{border-bottom:0}
+td.n,th.n{text-align:right}tbody tr:hover{background:#F7F9F9}
+.pill{font-size:10.5px;padding:1px 6px;border-radius:9px;font-weight:600;white-space:nowrap}
+.p-bad{background:#F6E3E6;color:var(--cut)}.p-warn{background:#FBF0DA;color:var(--tallow)}
+.p-ok{background:#E4F1EA;color:var(--sage)}.p-neu{background:#EDEFEF;color:var(--steel)}
+
+.brow{display:grid;grid-template-columns:1fr auto;gap:8px;align-items:center;font-size:12.5px;margin-bottom:9px}
+.brow .track{grid-column:1/-1;height:6px;background:#EDEFEF;border-radius:3px;overflow:hidden;margin-top:-4px}
+.brow .track i{display:block;height:100%}
+.note-strip{background:#fff;border:1px solid var(--line);border-left:3px solid var(--tallow);
+  border-radius:var(--r);padding:10px 13px;font-size:12.5px;color:var(--steel);margin-bottom:16px}
+.note-strip b{color:var(--ink)}
+</style>
+</head>
+<body>
+
+<aside class="side">
+  <div class="brand"><div class="mark">CORE<span>·</span>RPT</div><div class="sub">Reporting &amp; Analytics Portal</div></div>
+  <div class="rolechip">Accounting role</div>
+  <nav class="nav">
+    <div class="grp">Dashboards</div>
+    <a class="on"><span class="ic">▪</span>Finance Overview</a>
+    <a><span class="ic">▪</span>Health Check</a>
+    <div class="grp">Explore</div>
+    <a><span class="ic">▪</span>AR Aging</a>
+    <a><span class="ic">▪</span>AP Aging</a>
+    <a><span class="ic">▪</span>Credit Limits</a>
+    <div class="grp">Reports</div>
+    <a><span class="ic">▦</span>Report Center</a>
+  </nav>
+</aside>
+
+<main class="main">
+  <header class="topbar">
+    <div class="crumb">Dashboards / <b>Finance Overview</b></div>
+    <div class="spacer"></div>
+    <div class="chip"><span class="k">As of</span> Jul 24, 2026</div>
+    <div class="chip"><span class="k">Branch</span> All (13)</div>
+    <div class="stamp">As of <span class="mono">09:41</span> · <b>fresh</b><br>auto-refresh 5 min</div>
+    <button class="btn ghost">Refresh</button>
+  </header>
+
+  <div class="wrap">
+    <div class="pagehead">
+      <h1>Finance Overview</h1>
+      <p>Both aging books side by side, credit exposure, and collection pace.
+         Buckets are fixed 30/60/90/120+. Every figure drills to its open items.</p>
+    </div>
+
+    <div class="note-strip"><b>Aging anchor.</b> AR ages from
+      <b>TransactionChargeSales</b>, AP from <b>APAccounts.Balance</b> — the remaining
+      open amount, measured from each item's date. Claude Code confirms invoice vs due date
+      before the SP is trusted.</div>
+
+    <div class="grid">
+      <!-- KPI row -->
+      <div class="card c3 kpi">
+        <h3>AR outstanding</h3>
+        <div class="val"><span class="cur">₱</span>24.6M</div>
+        <div class="meta"><span class="delta down">+3.1%</span><span class="note">412 open invoices</span></div>
+      </div>
+      <div class="card c3 kpi risk">
+        <h3>AR past due</h3>
+        <div class="val"><span class="cur">₱</span>5.9M</div>
+        <div class="meta"><span class="delta down">+640K</span><span class="note">24% of AR</span></div>
+      </div>
+      <div class="card c3 kpi risk">
+        <h3>Days sales outstanding</h3>
+        <div class="val">47</div>
+        <div class="meta"><span class="delta down">+4 d</span><span class="note">terms avg 30</span></div>
+      </div>
+      <div class="card c3 kpi">
+        <h3>AP due within 7 days</h3>
+        <div class="val"><span class="cur">₱</span>8.4M</div>
+        <div class="meta"><span class="note">11 vouchers ready</span></div>
+      </div>
+
+      <!-- Aging books -->
+      <div class="card c6">
+        <h3>Receivables aging<span class="drill">Drill to invoices →</span></h3>
+        <div class="aging">
+          <div class="b"><em>18.7M</em><i style="height:100%;background:var(--brine)"></i></div>
+          <div class="b"><em>3.1M</em><i style="height:38%;background:var(--tallow)"></i></div>
+          <div class="b"><em>1.4M</em><i style="height:22%;background:var(--cut)"></i></div>
+          <div class="b"><em>0.9M</em><i style="height:15%;background:var(--cut)"></i></div>
+          <div class="b"><em>0.5M</em><i style="height:9%;background:var(--cut)"></i></div>
+        </div>
+        <div class="agingx"><div>Current</div><div>1–30</div><div>31–60</div><div>61–90</div><div>90+</div></div>
+        <div class="legend">
+          <span><i style="background:var(--brine)"></i>Current</span>
+          <span><i style="background:var(--tallow)"></i>1–30</span>
+          <span><i style="background:var(--cut)"></i>Past due</span></div>
+      </div>
+      <div class="card c6">
+        <h3>Payables aging<span class="drill">Drill to vouchers →</span></h3>
+        <div class="aging">
+          <div class="b"><em>14.2M</em><i style="height:100%;background:var(--brine)"></i></div>
+          <div class="b"><em>4.8M</em><i style="height:34%;background:var(--tallow)"></i></div>
+          <div class="b"><em>1.1M</em><i style="height:8%;background:var(--cut)"></i></div>
+          <div class="b"><em>0.3M</em><i style="height:3%;background:var(--cut)"></i></div>
+          <div class="b"><em>0.1M</em><i style="height:2%;background:var(--cut)"></i></div>
+        </div>
+        <div class="agingx"><div>Current</div><div>1–30</div><div>31–60</div><div>61–90</div><div>90+</div></div>
+        <div class="legend">
+          <span><i style="background:var(--brine)"></i>Current</span>
+          <span><i style="background:var(--tallow)"></i>1–30</span>
+          <span><i style="background:var(--cut)"></i>Past due</span></div>
+      </div>
+
+      <!-- Credit exposure -->
+      <div class="card c6">
+        <h3>Credit limit exposure<span class="drill">Open credit review →</span></h3>
+        <table>
+          <thead><tr><th>Customer</th><th>Terms</th><th class="n">Limit</th><th class="n">Exposure</th><th class="n">Used</th><th>Oldest</th></tr></thead>
+          <tbody>
+            <tr><td>Vikings Group</td><td>30 d</td><td class="n mono">2,500,000</td><td class="n mono">2,840,000</td><td class="n"><span class="pill p-bad">114%</span></td><td>54 d</td></tr>
+            <tr><td>Seda Hotels</td><td>45 d</td><td class="n mono">3,000,000</td><td class="n mono">2,910,000</td><td class="n"><span class="pill p-warn">97%</span></td><td>92 d</td></tr>
+            <tr><td>Kuya J Restaurant</td><td>30 d</td><td class="n mono">1,200,000</td><td class="n mono">1,046,000</td><td class="n"><span class="pill p-warn">87%</span></td><td>28 d</td></tr>
+            <tr><td>Shangri-La Group</td><td>60 d</td><td class="n mono">6,000,000</td><td class="n mono">3,420,000</td><td class="n"><span class="pill p-ok">57%</span></td><td>19 d</td></tr>
+            <tr><td>Marco Polo Hotels</td><td>30 d</td><td class="n mono">2,000,000</td><td class="n mono">980,000</td><td class="n"><span class="pill p-ok">49%</span></td><td>12 d</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Collections vs billings -->
+      <div class="card c6">
+        <h3>Collections vs billings — trailing 6 months<span class="drill">Collections report →</span></h3>
+        <div style="margin-top:4px">
+          <div class="brow"><div>Feb · billed 38.1 / collected 36.4</div><div class="mono">95.5%</div>
+            <div class="track"><i style="width:95.5%;background:var(--brine)"></i></div></div>
+          <div class="brow"><div>Mar · billed 41.2 / collected 39.8</div><div class="mono">96.6%</div>
+            <div class="track"><i style="width:96.6%;background:var(--brine)"></i></div></div>
+          <div class="brow"><div>Apr · billed 39.7 / collected 36.1</div><div class="mono">90.9%</div>
+            <div class="track"><i style="width:90.9%;background:var(--tallow)"></i></div></div>
+          <div class="brow"><div>May · billed 44.3 / collected 41.9</div><div class="mono">94.6%</div>
+            <div class="track"><i style="width:94.6%;background:var(--brine)"></i></div></div>
+          <div class="brow"><div>Jun · billed 46.8 / collected 42.2</div><div class="mono">90.2%</div>
+            <div class="track"><i style="width:90.2%;background:var(--tallow)"></i></div></div>
+          <div class="brow"><div>Jul · billed 42.8 / collected 36.9</div><div class="mono">86.2%</div>
+            <div class="track"><i style="width:86.2%;background:var(--cut)"></i></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+</body>
+</html>

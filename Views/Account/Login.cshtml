@@ -1,0 +1,39 @@
+@{
+    ViewData["Title"] = "Sign in";
+    Layout = null;
+}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sign in &middot; CORE Reporting</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body class="loginbody">
+    <div class="loginbox">
+        <div class="mark">CORE<span>&middot;</span>RPT</div>
+        <div class="sub">Reporting &amp; Analytics Portal</div>
+
+        <form method="post" asp-controller="Account" asp-action="Login">
+            @Html.AntiForgeryToken()
+            <input type="hidden" name="returnUrl" value="@ViewBag.ReturnUrl" />
+
+            <label>Username</label>
+            <input type="text" name="username" autocomplete="username" required autofocus />
+
+            <label>Password</label>
+            <input type="password" name="password" autocomplete="current-password" required />
+
+            @if (!ViewData.ModelState.IsValid)
+            {
+                <div class="loginerr">
+                    @Html.ValidationSummary(false)
+                </div>
+            }
+
+            <button type="submit" class="btn">Sign in</button>
+        </form>
+    </div>
+</body>
+</html>

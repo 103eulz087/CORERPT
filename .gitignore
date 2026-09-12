@@ -1,0 +1,14 @@
+# secrets
+.claude/db.local.md
+appsettings.Production.json
+appsettings.*.local.json
+*.user
+
+# build output
+bin/
+obj/
+publish/
+
+# IDE
+.vs/
+.idea/

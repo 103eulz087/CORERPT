@@ -1,0 +1,163 @@
+@model ExecutiveDashboardViewModel
+@{
+    ViewData["Title"] = "Executive";
+
+    string Peso(decimal v) => "\u20B1" + v.ToString("#,##0");
+    string PesoM(decimal v) => "\u20B1" + (v / 1_000_000m).ToString("#,##0.0") + "M";
+
+    // Delta chip. Direction is about whether the movement is good, not whether
+    // the number went up: rising expenses are a "down" chip.
+    string DeltaClass(decimal? pct, bool higherIsBetter)
+    {
+        if (!pct.HasValue || pct == 0) return "flat";
+        var good = higherIsBetter ? pct > 0 : pct < 0;
+        return good ? "up" : "down";
+    }
+
+    string DeltaText(decimal? pct) =>
+        pct.HasValue ? (pct > 0 ? "+" : "") + pct.Value.ToString("0.0") + "%" : "\u2013";
+}
+
+<div class="pagehead">
+    <h1>Executive</h1>
+    <p>Where the money is right now, and where it has stopped moving.
+       Period: @Model.Filter.PeriodLabel.</p>
+</div>
+
+@* ---------------- Flow bar: the signature element ---------------- *@
+<div class="flow" id="flowBar">
+    @foreach (var stage in Model.Flow.OrderBy(s => s.StageOrder))
+    {
+        <div class="st @(stage.IsAvailable ? "" : "pending")">
+            <div class="lbl">@stage.StageLabel</div>
+            @if (stage.IsAvailable && stage.Amount.HasValue)
+            {
+                <div class="amt">@PesoM(stage.Amount.Value)</div>
+                <div class="cnt">from general ledger</div>
+            }
+            else
+            {
+                @* Never render an unavailable stage as zero. Zero is a claim. *@
+                <div class="amt pendingtext">&mdash;</div>
+                <div class="cnt">needs order tables</div>
+            }
+        </div>
+    }
+</div>
+
+@* ---------------- KPI tiles ---------------- *@
+<div class="grid">
+    <div class="card c3 kpi">
+        <h3>Net sales</h3>
+        <div class="val" id="kpiNetSales">@Peso(Model.Summary.NetSales)</div>
+        <div class="meta">
+            <span class="delta @DeltaClass(Model.Summary.NetSalesDeltaPct, true)">
+                @DeltaText(Model.Summary.NetSalesDeltaPct)
+            </span>
+            <span class="note">vs prior period</span>
+        </div>
+    </div>
+
+    <div class="card c3 kpi">
+        <h3>Gross margin</h3>
+        <div class="val" id="kpiMargin">
+            @(Model.Summary.GrossMarginPct?.ToString("0.0") ?? "\u2013")%
+        </div>
+        <div class="meta">
+            <span class="delta @(Model.Summary.MarginDeltaPts >= 0 ? "up" : "down")">
+                @(Model.Summary.MarginDeltaPts.HasValue
+                    ? (Model.Summary.MarginDeltaPts > 0 ? "+" : "")
+                      + Model.Summary.MarginDeltaPts.Value.ToString("0.0") + " pts"
+                    : "\u2013")
+            </span>
+            <span class="note">gross profit @Peso(Model.Summary.GrossProfit)</span>
+        </div>
+    </div>
+
+    <div class="card c3 kpi">
+        <h3>Cash position</h3>
+        <div class="val" id="kpiCash">@Peso(Model.Summary.CashPosition)</div>
+        <div class="meta"><span class="note">cash on hand and in bank</span></div>
+    </div>
+
+    <div class="card c3 kpi @(Model.Summary.ReceivablesTrade > 0 ? "" : "")">
+        <h3>Receivables</h3>
+        <div class="val" id="kpiAr">@Peso(Model.Summary.ReceivablesTrade)</div>
+        <div class="meta">
+            <span class="note">
+                trade only &mdash; aging needs the invoice tables
+            </span>
+        </div>
+    </div>
+
+    @* ---------------- Charts ---------------- *@
+    <div class="card c8">
+        <h3>Sales and margin &mdash; last 13 months</h3>
+        <div id="trendChart" style="height:300px;"></div>
+    </div>
+
+    <div class="card c4">
+        <h3>Position</h3>
+        <table>
+            <tbody>
+            <tr><td>Inventory on hand</td>
+                <td class="n mono">@Peso(Model.Summary.InventoryOnHand)</td></tr>
+            <tr><td>Inventory in transit</td>
+                <td class="n mono">@Peso(Model.Summary.InventoryInTransit)</td></tr>
+            <tr><td>Payables (trade, others, accrued)</td>
+                <td class="n mono">@Peso(Model.Summary.PayablesTrade)</td></tr>
+            <tr><td>Operating expense</td>
+                <td class="n mono">@Peso(Model.Summary.OperatingExpense)</td></tr>
+            <tr><td>Other income</td>
+                <td class="n mono">@Peso(Model.Summary.OtherIncome)</td></tr>
+            <tr><td><b>Net income</b></td>
+                <td class="n mono"><b>@Peso(Model.Summary.NetIncome)</b></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card c6">
+        <h3>Branch contribution &mdash; net sales</h3>
+        <div id="branchChart" style="height:300px;"></div>
+    </div>
+
+    <div class="card c6">
+        <h3>
+            Branch scorecard
+            <a class="drill" href="@Url.Action("ExportBranchScorecard", "Dashboard")">
+                Export &rarr;
+            </a>
+        </h3>
+        <table>
+            <thead>
+            <tr>
+                <th>Branch</th>
+                <th class="n">Net sales</th>
+                <th class="n">Margin</th>
+                <th class="n">Receivables</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var b in Model.Branches)
+            {
+                <tr>
+                    <td class="mono">@b.DisplayText</td>
+                    <td class="n mono">@Peso(b.NetSales)</td>
+                    <td class="n mono">
+                        @(b.GrossMarginPct?.ToString("0.0") ?? "\u2013")%
+                    </td>
+                    <td class="n mono">@Peso(b.Receivables)</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    window.CORE_TREND = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Trend));
+    window.CORE_BRANCHES = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Branches));
+</script>
+<script src="~/js/exec-dashboard.js" asp-append-version="true"></script>
+}
