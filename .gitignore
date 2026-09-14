@@ -8,6 +8,7 @@ appsettings.*.local.json
 bin/
 obj/
 publish/
+*.rar
 
 # IDE
 .vs/
