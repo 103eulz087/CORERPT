@@ -25,7 +25,7 @@
 </head>
 <body>
 
-<aside class="side">
+<aside class="side" id="sideNav">
     <div class="brand">
         <div class="mark">CORE<span>&middot;</span>RPT</div>
         <div class="sub">Reporting &amp; Analytics Portal</div>
@@ -83,8 +83,14 @@
     </div>
 </aside>
 
+<div class="navveil" id="navVeil"></div>
+
 <main class="main">
     <header class="topbar">
+        <button type="button" class="navtoggle" id="navToggle" aria-label="Open navigation"
+                aria-expanded="false" aria-controls="sideNav">
+            <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+        </button>
         <div class="crumb">Dashboards / <b>@ViewData["Title"]</b></div>
         <div class="spacer"></div>
 
@@ -134,6 +140,7 @@
 </main>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
+<script src="~/js/site-nav.js" asp-append-version="true"></script>
 @await RenderSectionAsync("Scripts", required: false)
 </body>
 </html>

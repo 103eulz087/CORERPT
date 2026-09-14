@@ -19,6 +19,13 @@ body{font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
 
 .side{width:242px;flex:0 0 242px;background:var(--sidebar);color:var(--text);display:flex;
   flex-direction:column;position:sticky;top:0;height:100vh;border-right:1px solid var(--line)}
+.navveil{position:fixed;inset:0;background:rgba(2,6,15,.65);z-index:105;display:none}
+.navveil.open{display:block}
+.navtoggle{display:none;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  width:34px;height:34px;flex:0 0 auto;background:var(--card);border:1px solid var(--line);
+  border-radius:8px;cursor:pointer}
+.navtoggle:hover{border-color:var(--brand)}
+.navtoggle .bar{width:16px;height:2px;background:var(--text);border-radius:1px;display:block}
 .brand{padding:18px;border-bottom:1px solid var(--line)}
 .brand .mark{font-weight:700;font-size:21px;letter-spacing:.02em;color:var(--text)}
 .brand .mark span{color:var(--brand)}
@@ -133,7 +140,23 @@ tbody tr:hover{background:var(--card-2)}
 .loginbox .btn{width:100%;margin-top:22px;padding:10px}
 .loginerr{margin-top:14px;font-size:12.5px;color:var(--risk);background:rgba(248,113,113,.12);padding:9px 11px;border-radius:8px}
 .loginerr ul{margin:0;padding-left:16px}
-@media(max-width:900px){body{display:block}.side{position:static;width:100%;flex:none;height:auto}}
+@media(max-width:900px){
+  .side{position:fixed;top:0;left:0;width:242px;flex:none;height:100vh;z-index:110;
+    transform:translateX(-100%);transition:transform .22s ease;box-shadow:0 0 40px rgba(0,0,0,.55)}
+  .side.open{transform:translateX(0)}
+  .navtoggle{display:flex}
+  .topbar{padding:10px 14px;gap:8px}
+  .crumb{order:1}
+  .navtoggle{order:0}
+  .spacer{display:none}
+  .filterform{order:3;flex-basis:100%;width:100%}
+  .stamp{order:4;flex:1 1 auto;text-align:left}
+  #refreshBtn{order:5}
+}
+@media(max-width:480px){
+  .wrap{padding:14px 14px 36px}
+  .branchpick{max-width:110px}
+}
 
 /* ============================================================================
    REPORT CENTER
