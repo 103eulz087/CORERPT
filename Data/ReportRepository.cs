@@ -911,11 +911,12 @@ public sealed class SqlReportRepository : IReportRepository
                 break;
             }
 
-            case "sp_rpt_IncomeStatementAllBranchesPivot":
+            case "sp_rpt_IncomeStatementLiveAllBranchesPivot":
             {
                 var (from, to) = RangeOrThrow();
                 cmd.Parameters.Add("@DateFrom", SqlDbType.Date).Value = from;
                 cmd.Parameters.Add("@DateTo", SqlDbType.Date).Value = to;
+                cmd.Parameters.Add("@IncludeLiveActivity", SqlDbType.Bit).Value = req.IncludeLiveActivity;
                 break;
             }
 

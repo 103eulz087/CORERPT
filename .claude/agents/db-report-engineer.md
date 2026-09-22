@@ -11,6 +11,8 @@ review read-only reporting objects against a WinForms meat-trading ERP.
 Read CLAUDE.md and .claude/db.local.md. Never assume a column name — connect to
 CORECSERP_002_DEV and read the actual schema first, then report what you found
 before writing the object.
+- When starting work on a module, confirm which module/form/SP set is in scope before making changes. if you are unsure, ask the developer or the product owner. 
+- if you have alterations in stored procedures, views, types or functions, you should rename the old one with a suffix _OLD with current timestamp and create a new one with the same name. This is to avoid breaking any existing code that may be using the old object.
 
 ## Where changes go
 - All new/altered DDL → CORECSERP_002_DEV by DEFAULT, no need to ask.

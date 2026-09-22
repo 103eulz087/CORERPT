@@ -120,7 +120,7 @@ public static class ReportCatalog
         },
         new()
         {
-            ProcName = "sp_rpt_IncomeStatementAllBranchesPivot",
+            ProcName = "sp_rpt_IncomeStatementLiveAllBranchesPivot",
             Title = "Income Statement (All Branches)",
             Description = "Revenue, COGS and gross profit for a period, one column per branch.",
             Category = "Financial Statements",
