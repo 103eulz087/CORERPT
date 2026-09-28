@@ -34,7 +34,7 @@ CDN, cookie auth with department roles. Deployed to IIS on Windows Server.
   branch scorecard, flow bar, inventory-by-branch, cash position) + Health
   Check + full MVC module.
 - **Accounting (Finance Overview)** — BUILT. AR/AP aging dashboard + Report
-  Center over 7 reporting procs. See `docs/brief-accounting-module.md`.
+  Center over the `ReportCatalog` procs (9 as of 2026-09-28). See `docs/brief-accounting-module.md`.
 - **Sales (Agent Scorecard)** — BUILT.
 - **Exception Center** — BUILT. Config-driven categories (SoD, Vouchering,
   Post Expense, AR, Sales, Purchasing, Inventory).
