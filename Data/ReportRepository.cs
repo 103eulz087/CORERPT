@@ -17,6 +17,21 @@ public interface IReportRepository
     Task<IReadOnlyList<FlowStage>> GetFlowBarAsync(FilterContext f, CancellationToken ct = default);
     Task<IReadOnlyList<HealthCheckItem>> GetHealthCheckAsync(DateOnly from, DateOnly to, CancellationToken ct = default);
 
+    /// <summary>sp_rpt_Exec_InventoryByBranch — current on-hand quantity/value
+    /// per branch, always every branch. No parameters: dbo.Inventory has no
+    /// historical snapshot mechanism (confirmed, see sql/24's header), so
+    /// this is always "right now", not point-in-time — do not add a fake
+    /// date parameter here later without first confirming that's changed.</summary>
+    Task<IReadOnlyList<BranchInventoryRow>> GetInventoryByBranchAsync(CancellationToken ct = default);
+
+    /// <summary>sp_rpt_Exec_CashPosition — one row per (AccountCode,
+    /// BranchCode) cash/bank balance as of f.DateTo (point-in-time, same
+    /// convention as ExecSummary's own balance-sheet section), filtered by
+    /// f.BranchCsv. See sql/25's header and CashPositionRow's doc comment
+    /// for the opening-balance and FX-labeling caveats every caller of this
+    /// must preserve in its UI.</summary>
+    Task<IReadOnlyList<CashPositionRow>> GetCashPositionAsync(FilterContext f, CancellationToken ct = default);
+
     /// <summary>
     /// Drill-down behind one row of sp_rpt_DataHealthCheck (Seq 1-15), via
     /// dbo.sp_rpt_DataHealthCheckDetail. Read generically exactly the way
@@ -60,6 +75,58 @@ public interface IReportRepository
     /// set 1) — callers must check this before trusting Legs.
     /// </summary>
     Task<TicketDrilldownResult> GetTicketDrilldownAsync(string ticketNumber, CancellationToken ct = default);
+
+    /// <summary>
+    /// sp_rpt_Agent_Scorecard — per-agent sales + AR rollup, company-wide (no
+    /// branch dimension; see sql/14-agent-scorecard.sql's header for why).
+    /// agentNamesCsv is passed straight through to @AgentNames (CSV of
+    /// Customers.AccountOfficer values; null/empty = all agents). The
+    /// UNASSIGNED and TOTAL rows are always returned by the proc regardless
+    /// of this filter.
+    /// </summary>
+    Task<IReadOnlyList<AgentScorecardRow>> GetAgentScorecardAsync(
+        DateOnly dateFrom, DateOnly dateTo, string? agentNamesCsv = null, CancellationToken ct = default);
+
+    /// <summary>
+    /// sp_rpt_ExceptionCenter_Summary — one row per exception CURRENTLY
+    /// implemented (ExceptionDefinition.IsActive = 1), joined to that day's
+    /// Findings/ValueAtRisk. No branch dimension (see
+    /// sql/15-exception-center.sql — the proc has no @BranchCodes param).
+    /// </summary>
+    Task<IReadOnlyList<ExceptionSummaryRow>> GetExceptionCenterSummaryAsync(
+        DateOnly dateFrom, DateOnly dateTo, CancellationToken ct = default);
+
+    /// <summary>
+    /// Drill-down behind one Exception Center card, via
+    /// dbo.sp_rpt_ExceptionCenter_Detail. Read generically exactly like
+    /// GetHealthCheckDetailAsync above (GetName/GetFieldType/GetValue, one
+    /// ReportResultSet — this proc only ever returns one result set) rather
+    /// than a typed DTO per exception code, since columns vary per
+    /// @ExceptionCode. An unrecognized @ExceptionCode makes the proc
+    /// RAISERROR — that surfaces here as a thrown SqlException; callers must
+    /// not swallow it, so the controller can turn it into a 400, same
+    /// contract as GetHealthCheckDetailAsync.
+    /// </summary>
+    Task<ReportRunResult> GetExceptionCenterDetailAsync(
+        string exceptionCode, DateOnly dateFrom, DateOnly dateTo, CancellationToken ct = default);
+
+    /* ---- Item Costing Recon (ERP-owned, read-only procs) ----------------- */
+
+    /// <summary>sp_rpt_ItemCostingRecon_List — shipments (result set 1) +
+    /// their linked expenses (result set 2). Read-only ERP-owned proc, do not
+    /// alter its SQL. ALL FOUR parameters must be passed explicitly (no SQL-side
+    /// defaults exist) — pass DBNull.Value for a logically-omitted filter.</summary>
+    Task<(IReadOnlyList<ReconShipmentRow> Shipments, IReadOnlyList<ReconExpenseRow> Expenses)>
+        GetItemCostingReconAsync(DateOnly? dateFrom, DateOnly? dateTo, string? shipmentNo, bool onlyWithExpenses, CancellationToken ct = default);
+
+    /// <summary>sp_rpt_ItemCostingRecon_ExpenseTickets — GL tickets (result set
+    /// 1) + GL lines (result set 2) behind ONE linked expense. Read generically
+    /// exactly like GetHealthCheckDetailAsync (GetName/GetFieldType/GetValue),
+    /// not typed DTOs, since this is rendered by the shared generic drilldown
+    /// modal (drilldown-modal.js), not a bespoke view. All three parameters
+    /// required, no SQL-side defaults.</summary>
+    Task<ReportRunResult> GetItemCostingReconTicketsAsync(
+        string referenceNumber, string invoiceNo, string shipmentNo, CancellationToken ct = default);
 }
 
 public sealed class SqlReportRepository : IReportRepository
@@ -278,6 +345,60 @@ public sealed class SqlReportRepository : IReportRepository
                 Receivables = Dec(r, "Receivables"),
                 Inventory = Dec(r, "Inventory"),
                 Payables = Dec(r, "Payables")
+            });
+        }
+        return list;
+    }
+
+    public async Task<IReadOnlyList<BranchInventoryRow>> GetInventoryByBranchAsync(CancellationToken ct = default)
+    {
+        var list = new List<BranchInventoryRow>();
+        await using var conn = await OpenAsync(ct);
+        await using var cmd = Proc(conn, "dbo.sp_rpt_Exec_InventoryByBranch");
+
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+        {
+            list.Add(new BranchInventoryRow
+            {
+                BranchCode = Str(r, "BranchCode"),
+                BranchName = Str(r, "BranchName"),
+                DisplayText = Str(r, "DisplayText"),
+                OnHandQuantity = Dec(r, "OnHandQuantity"),
+                OnHandValue = Dec(r, "OnHandValue"),
+                ItemCount = Int(r, "ItemCount"),
+                ZeroCostItemCount = Int(r, "ZeroCostItemCount"),
+                ZeroCostQuantity = Dec(r, "ZeroCostQuantity"),
+                ZeroCostQuantityPct = DecN(r, "ZeroCostQuantityPct"),
+                AsOf = r.GetDateTime(r.GetOrdinal("AsOf"))
+            });
+        }
+        return list;
+    }
+
+    public async Task<IReadOnlyList<CashPositionRow>> GetCashPositionAsync(
+        FilterContext f, CancellationToken ct = default)
+    {
+        var list = new List<CashPositionRow>();
+        await using var conn = await OpenAsync(ct);
+        await using var cmd = Proc(conn, "dbo.sp_rpt_Exec_CashPosition");
+        cmd.Parameters.Add("@AsOfDate", SqlDbType.Date).Value = f.DateTo.ToDateTime(TimeOnly.MinValue);
+        cmd.Parameters.Add("@BranchCodes", SqlDbType.VarChar, 200).Value =
+            (object?)f.BranchCsv ?? DBNull.Value;
+
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+        {
+            list.Add(new CashPositionRow
+            {
+                AccountCode = Str(r, "AccountCode"),
+                AccountName = Str(r, "AccountName"),
+                Classification = Str(r, "Classification"),
+                BranchCode = Str(r, "BranchCode"),
+                BranchName = Str(r, "BranchName"),
+                DisplayText = Str(r, "DisplayText"),
+                Balance = Dec(r, "Balance"),
+                AsOf = r.GetDateTime(r.GetOrdinal("AsOf"))
             });
         }
         return list;
@@ -968,14 +1089,297 @@ public sealed class SqlReportRepository : IReportRepository
             }
 
             case "sp_rpt_BankReconciliationWithDate":
+                // Redesigned from point-in-time to a period roll-forward
+                // statement: @AsOfDate replaced by @DateFrom/@DateTo. Kept in
+                // sync with ReportDefinition.Parameters (DateRange, not
+                // AsOfDate) in ReportCenterModels.cs.
                 AddBranch();
                 AddAccount(required: true);
-                cmd.Parameters.Add("@AsOfDate", SqlDbType.Date).Value = AsOfOrThrow();
+                {
+                    var (from, to) = RangeOrThrow();
+                    cmd.Parameters.Add("@DateFrom", SqlDbType.Date).Value = from;
+                    cmd.Parameters.Add("@DateTo", SqlDbType.Date).Value = to;
+                }
                 break;
 
             default:
                 throw new ArgumentException($"Unknown Report Center proc '{def.ProcName}'.");
         }
+    }
+
+    /* ======================================================================
+       SALES MODULE — AGENT SCORECARD
+       Column names below are the exact result-set columns from
+       sql/14-agent-scorecard.sql — read live, not guessed.
+    ====================================================================== */
+
+    public async Task<IReadOnlyList<AgentScorecardRow>> GetAgentScorecardAsync(
+        DateOnly dateFrom, DateOnly dateTo, string? agentNamesCsv = null, CancellationToken ct = default)
+    {
+        var list = new List<AgentScorecardRow>();
+        await using var conn = await OpenAsync(ct);
+        await using var cmd = Proc(conn, "dbo.sp_rpt_Agent_Scorecard");
+        cmd.Parameters.Add("@DateFrom", SqlDbType.Date).Value = dateFrom.ToDateTime(TimeOnly.MinValue);
+        cmd.Parameters.Add("@DateTo", SqlDbType.Date).Value = dateTo.ToDateTime(TimeOnly.MinValue);
+        cmd.Parameters.Add("@AgentNames", SqlDbType.VarChar, 200).Value =
+            string.IsNullOrWhiteSpace(agentNamesCsv) ? DBNull.Value : agentNamesCsv;
+
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+        {
+            list.Add(new AgentScorecardRow
+            {
+                AgentLabel = Str(r, "AgentLabel"),
+                RowType = Str(r, "RowType"),
+                NetSales = Dec(r, "NetSales"),
+                NetSalesPrior = Dec(r, "NetSalesPrior"),
+                TotalAssignedAccounts = Int(r, "TotalAssignedAccounts"),
+                ActiveAccounts = Int(r, "ActiveAccounts"),
+                DormantAccounts = Int(r, "DormantAccounts"),
+                NewAccounts = Int(r, "NewAccounts"),
+                AROutstanding = Dec(r, "AROutstanding"),
+                ARPastDue31Plus = Dec(r, "ARPastDue31Plus"),
+                ARPastDuePct = DecN(r, "ARPastDuePct"),
+                OldestOpenItemAgeDays = IntN(r, "OldestOpenItemAgeDays"),
+                NetSales90Day = Dec(r, "NetSales90Day"),
+                DSO = DecN(r, "DSO")
+            });
+        }
+        return list;
+    }
+
+    /* ======================================================================
+       EXCEPTION CENTER — business-process red flags (Management + Audit).
+       Column names below are the exact result-set columns from
+       sql/15-exception-center.sql — read live, not guessed.
+    ====================================================================== */
+
+    private static bool Bool(SqlDataReader r, string col)
+    {
+        var i = r.GetOrdinal(col);
+        return !r.IsDBNull(i) && r.GetBoolean(i);
+    }
+
+    public async Task<IReadOnlyList<ExceptionSummaryRow>> GetExceptionCenterSummaryAsync(
+        DateOnly dateFrom, DateOnly dateTo, CancellationToken ct = default)
+    {
+        var list = new List<ExceptionSummaryRow>();
+        await using var conn = await OpenAsync(ct);
+        await using var cmd = Proc(conn, "dbo.sp_rpt_ExceptionCenter_Summary");
+        cmd.Parameters.Add("@DateFrom", SqlDbType.Date).Value = dateFrom.ToDateTime(TimeOnly.MinValue);
+        cmd.Parameters.Add("@DateTo", SqlDbType.Date).Value = dateTo.ToDateTime(TimeOnly.MinValue);
+
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+        {
+            list.Add(new ExceptionSummaryRow
+            {
+                ExceptionCode = Str(r, "ExceptionCode"),
+                Category = Str(r, "Category"),
+                Title = Str(r, "Title"),
+                Severity = Str(r, "Severity"),
+                Findings = Int(r, "Findings"),
+                ValueAtRisk = DecN(r, "ValueAtRisk"),
+                HasDrillDown = Bool(r, "HasDrillDown"),
+                DrillDownRoute = StrN(r, "DrillDownRoute"),
+                AsOf = r.GetDateTime(r.GetOrdinal("AsOf"))
+            });
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// dbo.sp_rpt_ExceptionCenter_Detail — the drill-down behind one
+    /// Exception Center card. Same generic single-result-set read as
+    /// GetHealthCheckDetailAsync: columns vary per @ExceptionCode, so this
+    /// reads them positionally via GetName/GetFieldType/GetValue rather than
+    /// a per-check typed DTO. An unrecognized @ExceptionCode makes the proc
+    /// RAISERROR, which ExecuteReaderAsync surfaces as a SqlException; this
+    /// method does not catch it, so it propagates to the controller.
+    ///
+    /// Every branch of the proc is capped at TOP (500) and, since the 2026-09-
+    /// 26 fix, also emits a "TotalMatchCount" sentinel column (COUNT(*) OVER(),
+    /// the true pre-cap population, identical on every row). That column is
+    /// special-cased here: captured once into ReportResultSet.TotalRowCount
+    /// and stripped out of Columns/Rows so it never renders as a spurious data
+    /// column — this is what lets the drill-down modal show "showing top 500
+    /// of N" instead of silently disagreeing with the summary card's true
+    /// Findings count (see sql/21-exception-center-truncation-disclosure.sql).
+    /// </summary>
+    public async Task<ReportRunResult> GetExceptionCenterDetailAsync(
+        string exceptionCode, DateOnly dateFrom, DateOnly dateTo, CancellationToken ct = default)
+    {
+        const string totalCountSentinel = "TotalMatchCount";
+
+        await using var conn = await OpenAsync(ct);
+        await using var cmd = Proc(conn, "dbo.sp_rpt_ExceptionCenter_Detail");
+        cmd.Parameters.Add("@ExceptionCode", SqlDbType.VarChar, 50).Value = exceptionCode;
+        cmd.Parameters.Add("@DateFrom", SqlDbType.Date).Value = dateFrom.ToDateTime(TimeOnly.MinValue);
+        cmd.Parameters.Add("@DateTo", SqlDbType.Date).Value = dateTo.ToDateTime(TimeOnly.MinValue);
+
+        var resultSets = new List<ReportResultSet>();
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        do
+        {
+            var totalCountOrdinal = -1;
+            var columnList = new List<ReportColumn>(r.FieldCount);
+            for (var i = 0; i < r.FieldCount; i++)
+            {
+                var name = r.GetName(i);
+                if (name == totalCountSentinel) { totalCountOrdinal = i; continue; }
+                columnList.Add(new ReportColumn { Name = name, Type = MapColumnType(r.GetFieldType(i)) });
+            }
+
+            int? totalRowCount = null;
+            var rows = new List<object?[]>();
+            while (await r.ReadAsync(ct))
+            {
+                if (totalCountOrdinal >= 0 && totalRowCount is null && !r.IsDBNull(totalCountOrdinal))
+                    totalRowCount = r.GetInt32(totalCountOrdinal);
+
+                var values = new object?[columnList.Count];
+                var vi = 0;
+                for (var i = 0; i < r.FieldCount; i++)
+                {
+                    if (i == totalCountOrdinal) continue;
+                    values[vi++] = r.IsDBNull(i) ? null : r.GetValue(i);
+                }
+                rows.Add(values);
+            }
+
+            resultSets.Add(new ReportResultSet { Columns = columnList, Rows = rows, TotalRowCount = totalRowCount });
+        } while (await r.NextResultAsync(ct));
+
+        return new ReportRunResult
+        {
+            ProcName = "sp_rpt_ExceptionCenter_Detail",
+            RenderStyle = ReportRenderStyle.Grid,
+            ResultSets = resultSets
+        };
+    }
+
+    /* ======================================================================
+       ITEM COSTING RECON — ERP-owned, read-only procs (do not alter their
+       SQL; ask the ERP developer for a new proc instead). Column list and
+       parameter contract verified live against COREX001 on 2026-09-26 — see
+       docs/ItemCostingRecon_WebReporting_Handoff.md §3/§6.
+    ====================================================================== */
+
+    /// <summary>
+    /// dbo.sp_rpt_ItemCostingRecon_List — shipments (result set 1) + linked
+    /// expenses (result set 2). All four parameters have NO SQL-side default
+    /// (has_default_value = False in sys.parameters), so every one is bound
+    /// explicitly below, even when the caller omits the filter (DBNull.Value).
+    /// </summary>
+    public async Task<(IReadOnlyList<ReconShipmentRow> Shipments, IReadOnlyList<ReconExpenseRow> Expenses)>
+        GetItemCostingReconAsync(
+            DateOnly? dateFrom, DateOnly? dateTo, string? shipmentNo, bool onlyWithExpenses,
+            CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        await using var cmd = Proc(conn, "dbo.sp_rpt_ItemCostingRecon_List");
+        cmd.Parameters.Add("@DateFrom", SqlDbType.Date).Value =
+            dateFrom.HasValue ? dateFrom.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value;
+        cmd.Parameters.Add("@DateTo", SqlDbType.Date).Value =
+            dateTo.HasValue ? dateTo.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value;
+        cmd.Parameters.Add("@ShipmentNo", SqlDbType.VarChar, 10).Value =
+            string.IsNullOrWhiteSpace(shipmentNo) ? DBNull.Value : shipmentNo.Trim();
+        cmd.Parameters.Add("@OnlyWithExpenses", SqlDbType.Bit).Value = onlyWithExpenses;
+
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+
+        // Result set 1: one row per shipment (PO).
+        var shipments = new List<ReconShipmentRow>();
+        while (await r.ReadAsync(ct))
+        {
+            shipments.Add(new ReconShipmentRow
+            {
+                ShipmentNo = Str(r, "ShipmentNo"),
+                SupplierId = Str(r, "SupplierID"),
+                SupplierName = Str(r, "SupplierName"),
+                BranchName = Str(r, "BranchName"),
+                Status = Str(r, "Status"),
+                DateOrder = r.GetDateTime(r.GetOrdinal("DateOrder")),
+                TotalQty = Dec(r, "TotalQty"),
+                CurrentMinCost = Dec(r, "CurrentMinCost"),
+                CurrentMaxCost = Dec(r, "CurrentMaxCost"),
+                LinkedExpenseCount = Int(r, "LinkedExpenseCount"),
+                TotalInvoiceAmount = Dec(r, "TotalInvoiceAmount"),
+                TotalInventoryCost = Dec(r, "TotalInventoryCost"),
+                TotalCostIncorporated = Dec(r, "TotalCostIncorporated"),
+                Variance = Dec(r, "Variance"),
+                IsMatched = Bool(r, "IsMatched"),
+                ReconStatus = Str(r, "ReconStatus")
+            });
+        }
+
+        // Result set 2: one row per linked expense invoice.
+        var expenses = new List<ReconExpenseRow>();
+        if (await r.NextResultAsync(ct))
+        {
+            while (await r.ReadAsync(ct))
+            {
+                expenses.Add(new ReconExpenseRow
+                {
+                    ShipmentNo = Str(r, "ShipmentNo"),
+                    ReferenceNumber = Str(r, "ReferenceNumber"),
+                    InvoiceNo = Str(r, "InvoiceNo"),
+                    SupplierName = Str(r, "SupplierName"),
+                    ExpenseDate = r.IsDBNull(r.GetOrdinal("ExpenseDate")) ? null : r.GetDateTime(r.GetOrdinal("ExpenseDate")),
+                    Remarks = StrN(r, "Remarks"),
+                    Amount = Dec(r, "Amount"),
+                    InventoryCost = Dec(r, "InventoryCost"),
+                    CostDerived = DecN(r, "CostDerived"),
+                    RunningTotal = DecN(r, "RunningTotal")
+                });
+            }
+        }
+
+        return (shipments, expenses);
+    }
+
+    /// <summary>
+    /// dbo.sp_rpt_ItemCostingRecon_ExpenseTickets — GL tickets (result set 1)
+    /// + GL lines (result set 2) behind one linked expense. Same generic
+    /// multi-result-set read as GetHealthCheckDetailAsync: rendered by the
+    /// shared generic drilldown modal, not a typed DTO. All three parameters
+    /// have no SQL-side default, so all three are always bound.
+    /// </summary>
+    public async Task<ReportRunResult> GetItemCostingReconTicketsAsync(
+        string referenceNumber, string invoiceNo, string shipmentNo, CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        await using var cmd = Proc(conn, "dbo.sp_rpt_ItemCostingRecon_ExpenseTickets");
+        cmd.Parameters.Add("@ReferenceNumber", SqlDbType.VarChar, 10).Value = referenceNumber.Trim();
+        cmd.Parameters.Add("@InvoiceNo", SqlDbType.VarChar, 150).Value = invoiceNo.Trim();
+        cmd.Parameters.Add("@ShipmentNo", SqlDbType.VarChar, 10).Value = shipmentNo.Trim();
+
+        var resultSets = new List<ReportResultSet>();
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        do
+        {
+            var columns = new ReportColumn[r.FieldCount];
+            for (var i = 0; i < r.FieldCount; i++)
+                columns[i] = new ReportColumn { Name = r.GetName(i), Type = MapColumnType(r.GetFieldType(i)) };
+
+            var rows = new List<object?[]>();
+            while (await r.ReadAsync(ct))
+            {
+                var values = new object?[r.FieldCount];
+                for (var i = 0; i < r.FieldCount; i++)
+                    values[i] = r.IsDBNull(i) ? null : r.GetValue(i);
+                rows.Add(values);
+            }
+
+            resultSets.Add(new ReportResultSet { Columns = columns, Rows = rows });
+        } while (await r.NextResultAsync(ct));
+
+        return new ReportRunResult
+        {
+            ProcName = "sp_rpt_ItemCostingRecon_ExpenseTickets",
+            RenderStyle = ReportRenderStyle.Grid,
+            ResultSets = resultSets
+        };
     }
 
     private static ReportColumnType MapColumnType(Type t)

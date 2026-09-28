@@ -173,10 +173,13 @@ public static class ReportCatalog
         {
             ProcName = "sp_rpt_BankReconciliationWithDate",
             Title = "Bank Reconciliation",
-            Description = "Book vs. bank-statement balance for one bank account, with unresolved items.",
+            Description = "GL roll-forward and bank-side reconciliation for one bank account over a period.",
             Category = "Bank",
-            RenderStyle = ReportRenderStyle.Grid,
-            Parameters = ReportParameterKind.AsOfDate | ReportParameterKind.Branch | ReportParameterKind.Account,
+            // Statement, not Grid: rendered as a Balance-Sheet-style document
+            // (renderBankRecon in report-center.js). Period report, not
+            // point-in-time — @DateFrom/@DateTo, not @AsOfDate.
+            RenderStyle = ReportRenderStyle.Statement,
+            Parameters = ReportParameterKind.DateRange | ReportParameterKind.Branch | ReportParameterKind.Account,
             AccountRequired = true
         }
     };
@@ -242,6 +245,14 @@ public sealed class ReportResultSet
 {
     public IReadOnlyList<ReportColumn> Columns { get; set; } = Array.Empty<ReportColumn>();
     public IReadOnlyList<object?[]> Rows { get; set; } = Array.Empty<object?[]>();
+
+    /// <summary>The TRUE count of matching rows before any TOP(N) cap the proc
+    /// applies, when the proc chooses to report it (see the "TotalMatchCount"
+    /// sentinel column convention in GetExceptionCenterDetailAsync). Null when
+    /// the proc doesn't emit that column — Rows.Count is then the true count,
+    /// same as before this field existed. Never let a capped Rows.Count silently
+    /// stand in for the real population; the renderer must disclose a cap.</summary>
+    public int? TotalRowCount { get; set; }
 }
 
 /// <summary>The full output of running one Report Center proc.</summary>

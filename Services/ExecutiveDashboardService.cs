@@ -50,8 +50,13 @@ public sealed class ExecutiveDashboardService
         var branchTask = _repo.GetBranchScorecardAsync(filter, ct);
         var flowTask = _repo.GetFlowBarAsync(filter, ct);
         var listTask = _repo.GetBranchesAsync(ct);
+        // No filter dependency (dbo.Inventory has no date/branch parameter —
+        // see sql/24's header) — fetched alongside the filtered data anyway,
+        // simplest way to keep one BuildAsync/one cache entry per poll.
+        var inventoryTask = _repo.GetInventoryByBranchAsync(ct);
+        var cashTask = _repo.GetCashPositionAsync(filter, ct);
 
-        await Task.WhenAll(summaryTask, trendTask, branchTask, flowTask, listTask);
+        await Task.WhenAll(summaryTask, trendTask, branchTask, flowTask, listTask, inventoryTask, cashTask);
 
         var vm = new ExecutiveDashboardViewModel
         {
@@ -61,6 +66,8 @@ public sealed class ExecutiveDashboardService
             Branches = await branchTask,
             Flow = await flowTask,
             AllBranches = await listTask,
+            InventoryByBranch = await inventoryTask,
+            CashPosition = await cashTask,
             GeneratedAt = DateTime.Now
         };
 

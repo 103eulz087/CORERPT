@@ -1,0 +1,89 @@
+@model ExceptionCenterViewModel
+@{
+    ViewData["Title"] = "Exception Center";
+    var filter = ViewBag.Filter as FilterContext ?? Model.Filter;
+    var categories = Model.Rows.Select(r => r.Category).Distinct().ToList();
+    var criticals = Model.Rows.Count(r => r.Severity == "Critical" && !r.IsClean);
+
+    string PillClass(string severity) => severity switch
+    {
+        "Critical" => "p-bad",
+        "Warning" => "p-warn",
+        _ => "p-neu"
+    };
+}
+
+<div class="pagehead">
+    <h1>Exception Center</h1>
+    <p>Health Check verifies the ledger ties out; this module flags
+       business-process exceptions &mdash; skipped steps, control overrides,
+       stale items &mdash; that need a human look, not a ledger fix.
+       Checks for @filter?.PeriodLabel.</p>
+</div>
+
+<div class="note-strip @(criticals == 0 ? "ok" : "bad")" id="excSummaryStrip">
+    @if (criticals == 0)
+    {
+        <text><b>No critical exceptions.</b> Warning/Info findings, if any, are worth a look but do not require immediate action.</text>
+    }
+    else
+    {
+        <text><b>@criticals critical exception(s).</b> These indicate a control that was bypassed or a step that was skipped &mdash; review before period close.</text>
+    }
+</div>
+
+<section id="excGrid">
+    @foreach (var cat in categories)
+    {
+        <div class="rc-group">
+            <div class="eyebrow" style="margin-bottom:8px;">@cat</div>
+            <div class="rc-cardgrid">
+                @foreach (var row in Model.Rows.Where(r => r.Category == cat))
+                {
+                    var clickable = row.HasDrillDown && row.Findings > 0;
+                    <div class="rcard @(clickable ? "" : "exc-noclick")"
+                         data-code="@row.ExceptionCode"
+                         data-title="@row.Title"
+                         tabindex="@(clickable ? "0" : null)"
+                         role="@(clickable ? "button" : null)"
+                         aria-label="@(clickable ? "View details for " + row.Title : null)">
+                        <span class="pill @PillClass(row.Severity)">@row.Severity</span>
+                        <h3>@row.Title</h3>
+                        <div class="exc-row"><span>Findings</span><span class="mono">@row.Findings.ToString("#,##0")</span></div>
+                        <div class="exc-row">
+                            <span>Value at risk</span>
+                            <span class="mono">
+                                @(row.ValueAtRisk.HasValue
+                                    ? "₱" + row.ValueAtRisk.Value.ToString("#,##0.00")
+                                    : "–")
+                            </span>
+                        </div>
+                        @if (clickable)
+                        {
+                            <div class="exc-status"><span class="hc-view-hint">View details &rsaquo;</span></div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</section>
+
+@* ================= EXCEPTION DETAIL MODAL ================= *@
+<div class="modalveil" id="excVeil" style="display:none">
+    <div class="modalbox" role="dialog" aria-modal="true" aria-labelledby="excTitle">
+        <div class="modalhead">
+            <div>
+                <h2 id="excTitle">Exception detail</h2>
+                <div class="sub" id="excSub"></div>
+            </div>
+            <button class="x" id="excCloseBtn" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modalbody" id="excBody"></div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/drilldown-modal.js" asp-append-version="true"></script>
+    <script src="~/js/exception-center.js" asp-append-version="true"></script>
+}

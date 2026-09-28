@@ -1,0 +1,62 @@
+@{
+    ViewData["Title"] = "Hey Jude";
+}
+
+<div class="pagehead">
+    <h1>Hey Jude</h1>
+    <p>Ask a plain-English question about sales, branches, agents, AR/AP, exceptions, data
+       health, inventory, cash &amp; bank position, item costing, or a full statement/ledger.
+       Hey Jude looks it up from the same reports already on this portal — it never invents a
+       number — and charts it when the answer is a ranking or a trend.</p>
+</div>
+
+<div class="grid">
+    <div class="card c12 hj-chat">
+        <h3>Ask
+            <a href="javascript:void(0)" class="drill" id="hjViewChartBtn" style="display:none">View chart &rarr;</a>
+            <button type="button" class="drill hj-voice-toggle" id="hjVoiceToggle">Voice replies: on</button>
+        </h3>
+        <div class="hj-avatar-row">
+            <img src="~/images/hey-jude-avatar-2026.png" alt="Hey Jude" id="hjAvatar" class="hj-avatar" />
+        </div>
+        <div class="hj-log" id="hjLog">
+            <div class="hj-msg bot">
+                Try things like <i>&ldquo;top 3 branches this month&rdquo;</i>,
+                <i>&ldquo;top agents this week&rdquo;</i>,
+                <i>&ldquo;sales trend last 6 months&rdquo;</i>,
+                <i>&ldquo;top 5 customers by AR&rdquo;</i>,
+                <i>&ldquo;any exceptions this month?&rdquo;</i>,
+                <i>&ldquo;is our data health check clean?&rdquo;</i>,
+                <i>&ldquo;how much cash do we have?&rdquo;</i>,
+                <i>&ldquo;which branch has the most inventory?&rdquo;</i>,
+                <i>&ldquo;any item costing variance this quarter?&rdquo;</i>, or
+                <i>&ldquo;show me the balance sheet as of today&rdquo;</i>
+            </div>
+        </div>
+        <form class="hj-form" id="hjForm">
+            <input type="text" id="hjInput" placeholder="Ask a question&hellip;" autocomplete="off" />
+            <button type="button" class="btn ghost hj-mic-btn" id="hjMicBtn" title="Ask by voice" aria-pressed="false">Speak</button>
+            <button type="submit" class="btn">Ask</button>
+        </form>
+    </div>
+</div>
+
+@* ---------------- Chart dialog: opens on demand, takes no page space ---------------- *@
+<div class="modalveil" id="hjChartVeil" style="display:none">
+    <div class="modalbox hj-chart-box">
+        <div class="modalhead">
+            <div>
+                <h2 id="hjChartTitle">Chart</h2>
+                <div class="sub">From your last question that returned a ranking or a trend.</div>
+            </div>
+            <button type="button" class="x" id="hjChartCloseBtn" aria-label="Close">&times;</button>
+        </div>
+        <div class="modalbody">
+            <div id="hjChart" class="hj-chart"></div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <script src="~/js/hey-jude.js" asp-append-version="true"></script>
+}

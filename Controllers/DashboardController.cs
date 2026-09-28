@@ -77,7 +77,9 @@ public sealed class DashboardController : FilterAwareController
             summary = vm.Summary,
             trend = vm.Trend,
             branches = vm.Branches,
-            flow = vm.Flow
+            flow = vm.Flow,
+            inventoryByBranch = vm.InventoryByBranch,
+            cashPosition = vm.CashPosition
         });
     }
 
@@ -179,7 +181,8 @@ public sealed class DashboardController : FilterAwareController
                 resultSets = result.ResultSets.Select(rs => new
                 {
                     columns = rs.Columns.Select(c => new { name = c.Name, type = c.Type.ToString() }),
-                    rows = rs.Rows
+                    rows = rs.Rows,
+                    totalRowCount = rs.TotalRowCount
                 })
             });
         }

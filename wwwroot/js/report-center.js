@@ -478,6 +478,8 @@
         // Report Center brief.
         if (procName === "sp_rpt_BalanceSheetWithDate" || procName === "sp_rpt_BalanceSheetLiveWithDate") {
             renderBalanceSheet(resultSets, container, q);
+        } else if (procName === "sp_rpt_BankReconciliationWithDate") {
+            renderBankRecon(resultSets, container, q);
         } else if (/TrialBalanceWithDate/i.test(procName)) {
             renderTrialBalance(resultSets, container, q);
         } else {
@@ -585,6 +587,148 @@
             "<div class=\"dt\">As of " + escapeHtml(q.asOfDate || "") + " &middot; " + escapeHtml(branchLabel) + " &middot; in ₱</div>" +
             "</div>" +
             "<table class=\"stmt-tbl\">" + rowsHtml + "</table>" +
+            "</div>";
+    }
+
+    /* ---------------- Bank Reconciliation statement ----------------
+       Same document look as the Balance Sheet (.statement). Period roll-
+       forward report (was point-in-time). The proc returns three sets:
+       [0] account header (AccountCode, AccountDescription, Nature,
+       BranchCode, DateFrom, DateTo), [1] unresolved reconciling items
+       (ItemType DIT = deposit in transit, OC = outstanding check; amounts
+       come back positive), [2] one summary row with the GL roll-forward
+       (Beginning/Receipts/Disbursements/Other/Ending) and the bank-side
+       reconciliation (Ending Bank Balance adjusted by DIT/OC/Other) plus
+       UnreconciledDifference. The figures shown are the proc's own totals —
+       never re-summed here — so the page can't disagree with Excel export
+       or Hey Jude. A group with more than BR_INLINE_LIMIT items starts
+       collapsed (one account has 2,000+ open deposits), with a toggle to
+       list them all. OtherGL/OtherBank read 0.00 in live data today — that's
+       a disclosed data-quality fact (no "other" reconciling-item category
+       exists yet in this ERP), not a bug, so both lines are still rendered
+       for template fidelity rather than hidden. */
+    var BR_INLINE_LIMIT = 50;
+
+    function renderBankRecon(resultSets, container, q) {
+        var hdr = resultSets[0], items = resultSets[1], sum = resultSets[2];
+        if (!hdr || !items || !sum || !sum.rows[0]) { renderGrid(resultSets, container); return; }
+
+        var s = sum.rows[0];
+        var S = function (name) { var i = colIndex(sum.columns, name); return i >= 0 ? s[i] : null; };
+        var beginGL = S("BeginningGLBalance"), receipts = S("CashReceipts"),
+            disbursements = S("CashDisbursements"), otherGL = S("OtherGL"), endGL = S("EndingGLBalance"),
+            bank = S("BankStatementBalance"), dit = S("TotalDepositsInTransit"),
+            oc = S("TotalOutstandingChecks"), otherBank = S("OtherBank"),
+            adjusted = S("AdjustedBankBalance"), diff = S("UnreconciledDifference"),
+            reconciled = S("IsReconciled");
+        // BankStatementBalance / AdjustedBankBalance / UnreconciledDifference
+        // are nullable together — no bank statement entered for this period yet.
+        var noStatement = bank === null || bank === undefined;
+
+        var h = hdr.rows[0];
+        var col = function (name) { var i = colIndex(hdr.columns, name); return (i >= 0 && h) ? h[i] : null; };
+        var acctCode = h ? col("AccountCode") : q.accountCode;
+        var acctDesc = h ? col("AccountDescription") : "";
+        var dateFrom = (h && col("DateFrom")) || q.dateFrom;
+        var dateTo = (h && col("DateTo")) || q.dateTo;
+
+        var iType = colIndex(items.columns, "ItemType"), iDate = colIndex(items.columns, "ItemDate"),
+            iRef = colIndex(items.columns, "ReferenceNo"), iPayee = colIndex(items.columns, "Payee"),
+            iAmt = colIndex(items.columns, "Amount"), iBr = colIndex(items.columns, "BranchCode"),
+            iRem = colIndex(items.columns, "Remarks");
+        var allBranches = !q.branchCode;
+
+        // "Pending" (em-dash), never 0.00, when no bank statement balance was entered.
+        var pendingCell = "<td class=\"amt mono pending\">&mdash;</td>";
+        var neg = function (v) { return v == null ? null : -Number(v); };
+
+        function itemRows(type, groupId) {
+            var list = items.rows.filter(function (r) { return r[iType] === type; });
+            var collapsed = list.length > BR_INLINE_LIMIT;
+            var html = list.map(function (r) {
+                var bits = [fmtDate(r[iDate]), r[iRef], r[iPayee] || r[iRem]].filter(function (x) { return x; });
+                if (allBranches && iBr >= 0) bits.push(branchDisplay(r[iBr]));
+                return "<tr class=\"lvl3 br-item\" data-group=\"" + groupId + "\"" + (collapsed ? " hidden" : "") + ">" +
+                    "<td>" + escapeHtml(bits.join(" \u00b7 ")) + "</td>" + amtCell(r[iAmt]) + "</tr>";
+            }).join("");
+            if (!list.length) {
+                html = "<tr class=\"lvl3\"><td class=\"br-none\">None outstanding</td><td class=\"amt\"></td></tr>";
+            } else if (collapsed) {
+                html = "<tr class=\"lvl3\"><td><button type=\"button\" class=\"br-toggle\" data-group=\"" + groupId +
+                    "\" aria-expanded=\"false\">Show all " + list.length.toLocaleString("en-PH") + " items</button></td>" +
+                    "<td class=\"amt\"></td></tr>" + html;
+            }
+            return { html: html, count: list.length };
+        }
+
+        var ditRows = itemRows("DIT", "dit"), ocRows = itemRows("OC", "oc");
+        var rows = "";
+
+        /* ---- 1. GL roll-forward ---- */
+        rows += "<tr class=\"lvl0\"><td>Beginning GL Balance</td>" + amtCell(beginGL) + "</tr>";
+        rows += "<tr class=\"lvl1\"><td>Add: Cash Receipts</td>" + amtCell(receipts) + "</tr>";
+        rows += "<tr class=\"lvl1\"><td>Less: Cash Disbursements</td>" + amtCell(neg(disbursements)) + "</tr>";
+        rows += "<tr class=\"lvl1\"><td>Add (Less) Other</td>" + amtCell(otherGL) + "</tr>";
+        rows += "<tr class=\"grandtot\"><td>Ending GL Balance</td>" + amtCell(endGL) + "</tr>";
+
+        /* ---- 2. Bank-side reconciliation ---- */
+        rows += "<tr class=\"lvl0\"><td>Ending Bank Balance</td>" +
+            (noStatement ? pendingCell : amtCell(bank)) + "</tr>";
+
+        rows += "<tr class=\"lvl1\"><td>Add back: Deposits in transit <span class=\"br-count\">(" +
+            ditRows.count.toLocaleString("en-PH") + ")</span></td><td class=\"amt\"></td></tr>" + ditRows.html;
+        rows += "<tr class=\"subtot\"><td class=\"lvl1\">Total deposits in transit</td>" + amtCell(dit) + "</tr>";
+
+        rows += "<tr class=\"lvl1\"><td>(Less) Outstanding checks <span class=\"br-count\">(" +
+            ocRows.count.toLocaleString("en-PH") + ")</span></td><td class=\"amt\"></td></tr>" + ocRows.html;
+        rows += "<tr class=\"subtot\"><td class=\"lvl1\">Total outstanding checks</td>" + amtCell(neg(oc)) + "</tr>";
+
+        rows += "<tr class=\"lvl1\"><td>Add (Less) Other</td>" + amtCell(otherBank) + "</tr>";
+        rows += "<tr class=\"subtot\"><td class=\"lvl1\">Total other</td>" + amtCell(otherBank) + "</tr>";
+
+        rows += "<tr class=\"grandtot\"><td>Adjusted bank balance</td>" +
+            (noStatement ? pendingCell : amtCell(adjusted)) + "</tr>";
+
+        /* ---- 3. Tie-out ---- */
+        var status;
+        if (noStatement) {
+            rows += "<tr class=\"checkline\"><td>Unreconciled difference</td>" + pendingCell + "</tr>";
+            status = "<span class=\"br-pill warn\">No bank statement for this date</span>";
+        } else {
+            rows += "<tr class=\"checkline\"><td>Unreconciled difference</td>" +
+                "<td class=\"amt mono " + (reconciled ? "ok" : "bad") + "\">" + fmtAmt(diff).text + "</td></tr>";
+            status = reconciled
+                ? "<span class=\"br-pill good\">Reconciled</span>"
+                : "<span class=\"br-pill risk\">Not reconciled</span>";
+        }
+
+        // Final restated tie-out — same EndingGLBalance value from the
+        // roll-forward above, repeated per the template, never recomputed.
+        rows += "<tr class=\"lvl0 br-book\"><td>Ending GL Balance</td>" + amtCell(endGL) + "</tr>";
+
+        var branchLabel = q.branchCode
+            ? ($("pBranch").selectedOptions[0] ? $("pBranch").selectedOptions[0].text : q.branchCode)
+            : "All Branches (Combined)";
+
+        var periodLabel = (dateFrom || dateTo)
+            ? (escapeHtml(fmtDate(dateFrom)) + " to " + escapeHtml(fmtDate(dateTo)))
+            : "";
+
+        container.innerHTML =
+            "<div class=\"statement\">" +
+            "<div class=\"stmthead\">" +
+            "<div class=\"co\">CORE CS JFC &mdash; Meat Trading</div>" +
+            "<div class=\"ti\">Bank Reconciliation Statement</div>" +
+            "<div class=\"dt\">" + escapeHtml(acctCode || "") + (acctDesc ? " &mdash; " + escapeHtml(acctDesc) : "") + "</div>" +
+            "<div class=\"dt\">" + periodLabel + " &middot; " + escapeHtml(branchLabel) + " &middot; in ₱</div>" +
+            "<div class=\"br-status\">" + status + "</div>" +
+            "</div>" +
+            "<table class=\"stmt-tbl\">" + rows + "</table>" +
+            (noStatement
+                ? "<div class=\"br-note\">No bank statement balance has been entered for this account for the period " +
+                  "ending " + escapeHtml(fmtDate(dateTo)) + " (BankReconHeader), so the adjusted bank balance " +
+                  "and unreconciled difference can't be computed. Pick a period whose end date has a statement.</div>"
+                : "") +
             "</div>";
     }
 
@@ -751,6 +895,16 @@
         // number opens the drilldown modal, however the results panel was
         // most recently re-rendered.
         $("rcResults").addEventListener("click", function (e) {
+            // Bank Reconciliation: expand/collapse a long reconciling-item group.
+            var tog = e.target.closest(".br-toggle");
+            if (tog) {
+                var open = tog.getAttribute("aria-expanded") !== "true";
+                tog.setAttribute("aria-expanded", open ? "true" : "false");
+                tog.textContent = tog.textContent.replace(open ? /^Show all/ : /^Hide/, open ? "Hide" : "Show all");
+                document.querySelectorAll('#rcResults tr.br-item[data-group="' + tog.getAttribute("data-group") + '"]')
+                    .forEach(function (tr) { tr.hidden = !open; });
+                return;
+            }
             var row = e.target.closest("tr[data-ticket]");
             if (row) openTicketDrilldown(row.getAttribute("data-ticket"));
         });

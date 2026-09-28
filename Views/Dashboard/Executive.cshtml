@@ -16,6 +16,20 @@
 
     string DeltaText(decimal? pct) =>
         pct.HasValue ? (pct > 0 ? "+" : "") + pct.Value.ToString("0.0") + "%" : "\u2013";
+
+    // Aggregated by account (summed across branches) for the "which account,
+    // how much" at-a-glance table \u2014 the per-branch split in Model.CashPosition
+    // is remittance-attribution detail (see CashPositionRow's doc comment),
+    // not "which branch owns this account", so it would just be noise here.
+    var cashByAccount = Model.CashPosition
+        .GroupBy(r => new { r.AccountCode, r.AccountName, r.Classification })
+        .Select(g => new { g.Key.AccountName, g.Key.Classification, Balance = g.Sum(r => r.Balance) })
+        .OrderByDescending(x => x.Balance)
+        .ToList();
+    var cashTotal = Model.CashPosition.Sum(r => r.Balance);
+    var cashInBank = Model.CashPosition.Where(r => r.Classification == "Cash in Bank").Sum(r => r.Balance);
+    var cashOnHand = Model.CashPosition.Where(r => r.Classification == "Cash on Hand").Sum(r => r.Balance);
+    var cashAsOf = Model.CashPosition.Count > 0 ? Model.CashPosition[0].AsOf : Model.Filter.DateTo.ToDateTime(TimeOnly.MinValue);
 }
 
 <div class="pagehead">
@@ -90,6 +104,69 @@
         </div>
     </div>
 
+    <div class="card c12 cash-card">
+        <h3>Cash &amp; bank position
+            <span class="cash-asof">as of @cashAsOf.ToString("MMM d, yyyy")</span>
+            <a class="drill" href="#" data-toggle-details="cashDetailCard">Show details &rarr;</a>
+        </h3>
+        <div class="cash-hero-row">
+            <div class="cash-hero">
+                <div class="cash-hero-total mono" id="cashHeroTotal">@Peso(cashTotal)</div>
+                <div class="cash-hero-label">Total cash &amp; bank</div>
+            </div>
+            <div class="cash-split-row" id="cashSplitRow">
+                <div class="cash-split">
+                    <span class="k">Cash in bank</span>
+                    <span class="v mono" id="cashInBank">@Peso(cashInBank)</span>
+                </div>
+                <div class="cash-split">
+                    <span class="k">Cash on hand</span>
+                    <span class="v mono" id="cashOnHand">@Peso(cashOnHand)</span>
+                </div>
+            </div>
+        </div>
+        @* Collapsed by default: the hero + split above is the "at a glance"
+           answer; the per-account table is detail a controller drills into,
+           not something that should push the card's height out on every
+           page load. Same show/hide convention as FinanceOverview.cshtml's
+           "Show details" links (see accounting-dashboard.js's
+           wireDetailToggle) — mirrored locally in exec-dashboard.js since
+           each dashboard page owns its own script file. *@
+        <div id="cashDetailCard" style="display:none">
+            <table class="cash-table">
+                <thead><tr><th>Account</th><th class="n">Balance</th></tr></thead>
+                <tbody id="cashTableBody">
+                @foreach (var row in cashByAccount)
+                {
+                    var isNeg = row.Balance < 0;
+                    var isFx = row.AccountName.Contains("USD") || row.AccountName.Contains("EURO");
+                    <tr>
+                        <td>
+                            @row.AccountName
+                            @if (isFx)
+                            {
+                                <span class="cash-fx-badge" title="This ERP does not track foreign currency separately &mdash; shown in PHP, not the account's named currency.">PHP</span>
+                            }
+                        </td>
+                        <td class="n mono @(isNeg ? "cash-neg" : "")">@Peso(row.Balance)</td>
+                    </tr>
+                }
+                @if (cashByAccount.Count == 0)
+                {
+                    <tr><td colspan="2" class="hc-empty-row">No posted cash/bank activity for this period.</td></tr>
+                }
+                </tbody>
+            </table>
+            <div class="hc-truncated-note">
+                Balances exclude any opening balance carried in from before this ledger's earliest posted
+                transaction &mdash; treat individual account figures as directional, not final, until confirmed
+                against actual bank statements. Accounts marked <b>PHP</b> carry a legacy &ldquo;USD&rdquo;/
+                &ldquo;EURO&rdquo; name only &mdash; this system does not track foreign currency separately, so
+                every balance above is Philippine pesos regardless of account name.
+            </div>
+        </div>
+    </div>
+
     @* ---------------- Charts ---------------- *@
     <div class="card c8">
         <h3>Sales and margin &mdash; last 13 months</h3>
@@ -119,6 +196,13 @@
     <div class="card c6">
         <h3>Branch contribution &mdash; net sales</h3>
         <div id="branchChart" style="height:300px;"></div>
+    </div>
+
+    <div class="card c12">
+        <h3>Inventory by branch &mdash; on-hand value</h3>
+        <div class="exc-row" id="invStats" style="margin-bottom:8px"></div>
+        <div id="inventoryChart" style="height:300px;"></div>
+        <div id="invCostGapNote" class="hc-truncated-note" style="display:none;margin-top:10px"></div>
     </div>
 
     <div class="card c6">
@@ -158,6 +242,8 @@
 <script>
     window.CORE_TREND = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Trend));
     window.CORE_BRANCHES = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Branches));
+    window.CORE_INVENTORY = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.InventoryByBranch));
+    window.CORE_CASH = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.CashPosition));
 </script>
 <script src="~/js/exec-dashboard.js" asp-append-version="true"></script>
 }

@@ -1,4 +1,5 @@
 @using System.Security.Claims
+@inject Microsoft.AspNetCore.Antiforgery.IAntiforgery Antiforgery
 @{
     var filter = ViewBag.Filter as FilterContext
                  ?? (Model as ExecutiveDashboardViewModel)?.Filter
@@ -20,6 +21,7 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="request-verification-token" content="@Antiforgery.GetAndStoreTokens(Context).RequestToken" />
     <title>@ViewData["Title"] &middot; CORE Reporting</title>
     <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
 </head>
@@ -49,6 +51,17 @@
                     <span class="ic">&#9642;</span>Finance Overview
                 </a>
             }
+            @if (InRole("Executive") || InRole("Accounting") || InRole("Audit"))
+            {
+                <a href="@Url.Action("AgentScorecard", "Sales")"
+                   class="@(currentAction == "AgentScorecard" && currentController == "Sales" ? "on" : "")">
+                    <span class="ic">&#9642;</span>Agent Scorecard
+                </a>
+                <a href="@Url.Action("Index", "ItemCostingRecon")"
+                   class="@(currentController == "ItemCostingRecon" ? "on" : "")">
+                    <span class="ic">&#9642;</span>Item Costing Recon
+                </a>
+            }
         }
 
         @if (InRole("Accounting") || InRole("Audit") || InRole("Executive"))
@@ -58,6 +71,13 @@
                class="@(currentAction == "Health" ? "on" : "")">
                 <span class="ic">&#9642;</span>Health Check
             </a>
+            @if (InRole("Executive") || InRole("Audit"))
+            {
+                <a href="@Url.Action("Index", "ExceptionCenter")"
+                   class="@(currentController == "ExceptionCenter" ? "on" : "")">
+                    <span class="ic">&#9642;</span>Exception Center
+                </a>
+            }
         }
 
         @if (InRole("Accounting") || InRole("Audit") || InRole("Executive"))
@@ -66,6 +86,10 @@
             <a href="@Url.Action("ReportCenter", "ReportCenter")"
                class="@(currentController == "ReportCenter" ? "on" : "")">
                 <span class="ic">&#9642;</span>Report Center
+            </a>
+            <a href="@Url.Action("Index", "HeyJude")"
+               class="@(currentController == "HeyJude" ? "on" : "")">
+                <span class="ic">&#9642;</span>Hey Jude
             </a>
         }
 
@@ -138,6 +162,7 @@
         @RenderBody()
     </div>
 </main>
+
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/echarts/5.5.0/echarts.min.js"></script>
 <script src="~/js/site-nav.js" asp-append-version="true"></script>

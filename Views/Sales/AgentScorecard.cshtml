@@ -1,0 +1,146 @@
+@model AgentScorecardViewModel
+@{
+    ViewData["Title"] = "Agent Scorecard";
+
+    string Peso0(decimal v) => "₱" + v.ToString("#,##0");
+    var Dash = "–";
+
+    // Delta chip — exact same convention as Views/Dashboard/Executive.cshtml:
+    // direction is about whether the movement is GOOD, not whether the
+    // number went up. Net sales is always higher-is-better.
+    string DeltaClass(decimal? pct, bool higherIsBetter)
+    {
+        if (!pct.HasValue || pct == 0) return "flat";
+        var good = higherIsBetter ? pct > 0 : pct < 0;
+        return good ? "up" : "down";
+    }
+
+    string DeltaText(decimal? pct) =>
+        pct.HasValue ? (pct > 0 ? "+" : "") + pct.Value.ToString("0.0") + "%" : Dash;
+
+    // AR-past-due-% risk cutoff for the oxblood pill on ARPastDuePct.
+    // PLACEHOLDER: grepped wwwroot/js/accounting-dashboard.js and
+    // Views/Accounting/FinanceOverview.cshtml for an existing "AR past due %"
+    // threshold and found none — the only existing cutoffs there (85 / 100)
+    // are for a different metric (credit-limit *exposure* %, ExposurePillClass).
+    // Using 25% here as a reasonable stand-in; ask the developer for the real
+    // house number and replace this constant (and its JS twin in
+    // wwwroot/js/agent-scorecard.js) once confirmed.
+    const decimal ArPastDueRiskThresholdPct = 25m;
+    bool IsArRisk(decimal? pct) => pct.HasValue && pct.Value >= ArPastDueRiskThresholdPct;
+
+    var agentRows = Model.Rows.Where(r => r.RowType == "AGENT")
+        .OrderByDescending(r => r.NetSales).ToList();
+    var unassignedRow = Model.Rows.FirstOrDefault(r => r.RowType == "UNASSIGNED");
+    var totalRow = Model.Rows.FirstOrDefault(r => r.RowType == "TOTAL");
+
+    var orderedRows = new List<AgentScorecardRow>(agentRows);
+    if (unassignedRow != null) orderedRows.Add(unassignedRow);
+    if (totalRow != null) orderedRows.Add(totalRow);
+
+    string RowClass(string rowType) => rowType switch
+    {
+        "TOTAL" => "row-total",
+        "UNASSIGNED" => "row-unassigned",
+        _ => "row-agent"
+    };
+}
+
+<div class="pagehead">
+    <h1>Agent Scorecard</h1>
+    <p>Sales performance and AR/collections accountability, one row per agent.
+       Period: @Model.Filter.PeriodLabel.</p>
+</div>
+
+<div class="grid">
+    <div class="card c12">
+        <h3>Agent leaderboard
+            <a class="drill" href="@Url.Action("ExportAgentScorecard", "Sales")">Export &rarr;</a>
+        </h3>
+
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <span class="mono" style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em">Sort by</span>
+            <button type="button" class="btn sm" id="sortByNetSales">Net sales</button>
+            <button type="button" class="btn ghost sm" id="sortByArPastDue">AR past due %</button>
+        </div>
+
+        <table id="agentScorecardTable">
+            <thead>
+            <tr>
+                <th>Agent</th>
+                <th class="n">Net sales</th>
+                <th class="n">&Delta; vs prior</th>
+                <th class="n">Assigned</th>
+                <th class="n">Active</th>
+                <th class="n">New</th>
+                <th class="n">AR outstanding</th>
+                <th class="n">AR past due 31+</th>
+                <th class="n">AR past due %</th>
+                <th class="n">Oldest open item</th>
+                <th class="n">DSO</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var row in orderedRows)
+            {
+                var isTotal = row.RowType == "TOTAL";
+                var isUnassigned = row.RowType == "UNASSIGNED";
+                <tr class="@RowClass(row.RowType)" data-row-type="@row.RowType"
+                    data-net-sales="@row.NetSales.ToString(System.Globalization.CultureInfo.InvariantCulture)"
+                    data-ar-pct="@(row.ARPastDuePct.HasValue ? row.ARPastDuePct.Value.ToString(System.Globalization.CultureInfo.InvariantCulture) : "")">
+                    <td>
+                        @if (isUnassigned)
+                        {
+                            <span class="agent-name unassigned">@row.AgentLabel</span>
+                        }
+                        else
+                        {
+                            <span class="agent-name">@row.AgentLabel</span>
+                        }
+                        <span class="pill p-warn">@row.DormantAccounts dormant</span>
+                    </td>
+                    <td class="n mono">@Peso0(row.NetSales)</td>
+                    <td class="n">
+                        <span class="delta @DeltaClass(row.NetSalesDeltaPct, true)">@DeltaText(row.NetSalesDeltaPct)</span>
+                    </td>
+                    <td class="n mono">@row.TotalAssignedAccounts</td>
+                    <td class="n mono">@row.ActiveAccounts</td>
+                    <td class="n mono">@row.NewAccounts</td>
+                    <td class="n mono">@Peso0(row.AROutstanding)</td>
+                    <td class="n mono">@Peso0(row.ARPastDue31Plus)</td>
+                    <td class="n">
+                        @if (row.ARPastDuePct.HasValue)
+                        {
+                            @* Oxblood pill is rationed to money genuinely at risk — only
+                               above the threshold. Below it, plain mono text, no pill. *@
+                            if (IsArRisk(row.ARPastDuePct))
+                            {
+                                <span class="pill p-bad mono">@row.ARPastDuePct.Value.ToString("0.0")%</span>
+                            }
+                            else
+                            {
+                                <span class="mono">@row.ARPastDuePct.Value.ToString("0.0")%</span>
+                            }
+                        }
+                        else
+                        {
+                            <span class="mono">@Dash</span>
+                        }
+                    </td>
+                    <td class="n mono">@(row.OldestOpenItemAgeDays.HasValue ? row.OldestOpenItemAgeDays.Value + " d" : Dash)</td>
+                    <td class="n mono">@(row.DSO.HasValue ? row.DSO.Value.ToString("0.0") : Dash)</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    // See the ArPastDueRiskThresholdPct comment above — placeholder pending
+    // the developer's real house number for AR-past-due risk.
+    window.CORE_AGENT_RISK_THRESHOLD_PCT = @ArPastDueRiskThresholdPct;
+</script>
+<script src="~/js/agent-scorecard.js" asp-append-version="true"></script>
+}

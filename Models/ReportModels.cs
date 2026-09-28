@@ -95,6 +95,65 @@ public sealed class BranchScorecardRow
     public decimal Payables { get; set; }
 }
 
+/// <summary>One row of sp_rpt_Exec_InventoryByBranch — current on-hand
+/// quantity/value per branch, always every branch (LEFT JOIN from
+/// dbo.Branches), including ones with zero inventory. No date/branch
+/// parameters: dbo.Inventory is a current-state-only table (no historical
+/// snapshot mechanism exists — confirmed, see sql/24's header), so this is
+/// always "right now", not point-in-time.</summary>
+public sealed class BranchInventoryRow
+{
+    public string BranchCode { get; set; } = "";
+    public string BranchName { get; set; } = "";
+    public string DisplayText { get; set; } = "";
+    public decimal OnHandQuantity { get; set; }
+    public decimal OnHandValue { get; set; }
+    public int ItemCount { get; set; }
+
+    /// <summary>How much of OnHandQuantity/OnHandValue has no captured cost
+    /// (Cost = 0 or NULL) — OnHandValue is understated by roughly this much
+    /// for a branch where this is non-trivial (largely Head Office today,
+    /// see sql/24's header). Never hide this in the headline figure.</summary>
+    public int ZeroCostItemCount { get; set; }
+    public decimal ZeroCostQuantity { get; set; }
+
+    /// <summary>Null when the branch has zero on-hand quantity (divide-by-zero
+    /// guard in the proc) — never coerced to 0, which would misreport "no
+    /// data" as "no cost gap".</summary>
+    public decimal? ZeroCostQuantityPct { get; set; }
+
+    public DateTime AsOf { get; set; }
+}
+
+/// <summary>One row of sp_rpt_Exec_CashPosition — a single (AccountCode,
+/// BranchCode) cash/bank balance as of a point in time (not a date-range
+/// flow; see sql/25's header). Ties out exactly to ExecSummary.CashPosition
+/// when summed unfiltered for the same AsOf date.
+///
+/// Two caveats that MUST stay visible in any view over this data, not just
+/// in this comment (see sql/25's data-quality notes, confirmed by
+/// accounting-reviewer):
+/// 1. This ledger has no recorded opening balance before 2026-07-24 — every
+///    balance here excludes whatever should have been carried in, so an
+///    individual account's absolute figure (especially a negative one) is
+///    not proof of an overdraft, just an artifact of the missing opening
+///    entry. Never render these negatives with the risk-red palette color —
+///    that color is rationed for genuine money-at-risk, not a data gap.
+/// 2. "USD"/"EURO" in AccountName are legacy/cosmetic labels only — this
+///    ERP has no currency/FX table anywhere, confirmed live. Every balance
+///    here, regardless of AccountName, is already Philippine pesos.</summary>
+public sealed class CashPositionRow
+{
+    public string AccountCode { get; set; } = "";
+    public string AccountName { get; set; } = "";
+    public string Classification { get; set; } = "";
+    public string BranchCode { get; set; } = "";
+    public string BranchName { get; set; } = "";
+    public string DisplayText { get; set; } = "";
+    public decimal Balance { get; set; }
+    public DateTime AsOf { get; set; }
+}
+
 public sealed class FlowStage
 {
     public int StageOrder { get; set; }
@@ -130,5 +189,7 @@ public sealed class ExecutiveDashboardViewModel
     public IReadOnlyList<SalesTrendPoint> Trend { get; set; } = Array.Empty<SalesTrendPoint>();
     public IReadOnlyList<BranchScorecardRow> Branches { get; set; } = Array.Empty<BranchScorecardRow>();
     public IReadOnlyList<FlowStage> Flow { get; set; } = Array.Empty<FlowStage>();
+    public IReadOnlyList<BranchInventoryRow> InventoryByBranch { get; set; } = Array.Empty<BranchInventoryRow>();
+    public IReadOnlyList<CashPositionRow> CashPosition { get; set; } = Array.Empty<CashPositionRow>();
     public DateTime GeneratedAt { get; set; } = DateTime.Now;
 }

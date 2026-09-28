@@ -1,0 +1,277 @@
+@model ItemCostingReconViewModel
+@{
+    ViewData["Title"] = "Item Costing Recon";
+
+    // ---- formatting helpers (money 2dp, unit cost/variance 4dp, qty 3dp — see
+    // the handoff doc's §7 "Number formats"; negatives render in parentheses +
+    // risk-red, same convention as the statement views' .neg class) ----
+    string Peso(decimal v) => "₱" + v.ToString("#,##0.00");
+
+    string PesoSigned(decimal v)
+    {
+        var formatted = "₱" + Math.Abs(v).ToString("#,##0.00");
+        return v < 0 ? "<span class=\"neg\">(" + formatted + ")</span>" : formatted;
+    }
+
+    string N3(decimal v) => v.ToString("#,##0.000");
+    string N4(decimal v) => v.ToString("#,##0.0000");
+
+    string N4Signed(decimal v)
+    {
+        var formatted = Math.Abs(v).ToString("#,##0.0000");
+        return v < 0 ? "<span class=\"neg\">(" + formatted + ")</span>" : formatted;
+    }
+
+    // ReconStatus -> pill class, per the handoff doc §4 suggested colours.
+    // Reuses the existing .pill/.p-ok/.p-bad/.p-warn/.p-neu convention
+    // (Exception Center) instead of inventing new status-pill CSS.
+    string ReconPill(string status) => status switch
+    {
+        "MATCHED" => "p-ok",
+        "VARIANCE" => "p-bad",
+        "LOTS DIVERGE" => "p-warn",
+        "NO INVENTORY" => "p-warn",
+        _ => "p-neu"
+    };
+
+    var varianceCount = Model.Shipments.Count(s => s.ReconStatus == "VARIANCE");
+    var totalCount = Model.Shipments.Count;
+
+    var statusOptions = Model.Shipments.Select(s => s.Status).Distinct().OrderBy(x => x).ToList();
+    var supplierOptions = Model.Shipments.Select(s => s.SupplierName).Distinct().OrderBy(x => x).ToList();
+    var branchOptions = Model.Shipments.Select(s => s.BranchName).Distinct().OrderBy(x => x).ToList();
+    var reconStatusOptions = Model.Shipments.Select(s => s.ReconStatus).Distinct().OrderBy(x => x).ToList();
+
+    var refreshUrl = Url.Action("Index", "ItemCostingRecon", new
+    {
+        dateFrom = Model.DateFrom.ToString("yyyy-MM-dd"),
+        dateTo = Model.DateTo.ToString("yyyy-MM-dd"),
+        shipmentNo = Model.ShipmentNo,
+        force = true
+    });
+}
+
+<div class="pagehead">
+    <h1>Item Costing Recon</h1>
+    <p>Is the unit cost our stock is carried at the same as what the linked expense invoices justify?
+       One row per shipment (PO); drill into a shipment for its linked expenses, and into an expense
+       for its GL tickets. Generated @Model.GeneratedAt.ToString("MMM d, yyyy HH:mm").</p>
+</div>
+
+@* ---------------- Filters: own date range + shipment number, GET so the URL is shareable ---------------- *@
+<form method="get" asp-action="Index" class="parambar">
+    <div class="field">
+        <label>Date From</label>
+        <input type="date" name="dateFrom" value="@Model.DateFrom.ToString("yyyy-MM-dd")" />
+    </div>
+    <div class="field">
+        <label>Date To</label>
+        <input type="date" name="dateTo" value="@Model.DateTo.ToString("yyyy-MM-dd")" />
+    </div>
+    <div class="field">
+        <label>Shipment No</label>
+        <input type="text" name="shipmentNo" value="@Model.ShipmentNo" placeholder="e.g. 10955" />
+    </div>
+    <div class="run">
+        <button type="submit" class="btn">Apply</button>
+        <a class="btn ghost" href="@refreshUrl">Refresh</a>
+    </div>
+</form>
+
+@* ---------------- Management caption (handoff doc §9) — non-dismissable, read from live Model numbers ---------------- *@
+<div class="hc-truncated-note">
+    <b>@varianceCount of @totalCount shipments show VARIANCE today.</b> Most of this is expected fallout from a
+    whole-invoice costing bug (fixed 2026-09-24 going forward; historical unit costs were not restated) &mdash;
+    a red board here isn&rsquo;t @varianceCount new problems.<br />
+    The variance value is <b>not a P&amp;L figure</b> &mdash; it is the size of the valuation gap on the received
+    batch. Some of that stock may already be sold, in which case the gap already sits in cost of sales, not in
+    inventory.<br />
+    <span class="mono">FOR CONFIRMATION</span> shipments can still have their final cost confirmed, so their
+    variance may still change.
+</div>
+
+@* ---------------- KPI tiles (handoff doc §5) ---------------- *@
+<div class="grid">
+    <div class="card c4 kpi">
+        <h3>Shipments reconciled</h3>
+        <div class="val">@Model.ShipmentsReconciled.ToString("#,##0")</div>
+        <div class="meta"><span class="note">rows with linked expenses</span></div>
+    </div>
+    <div class="card c4 kpi">
+        <h3>Match rate</h3>
+        <div class="val">@Model.MatchRatePct.ToString("0.0")%</div>
+        <div class="meta"><span class="note">of shipments reconciled</span></div>
+    </div>
+    <div class="card c4 kpi risk">
+        <h3>Shipments needing attention</h3>
+        <div class="val">@Model.ShipmentsNeedingAttention.ToString("#,##0")</div>
+        <div class="meta"><span class="note">variance, lots diverge, or no inventory</span></div>
+    </div>
+
+    <div class="card c4 kpi">
+        <h3>Inventory cost from expenses</h3>
+        <div class="val mono">@Peso(Model.InventoryCostFromExpenses)</div>
+        <div class="meta"><span class="note">sum of TotalInventoryCost</span></div>
+    </div>
+    <div class="card c4 kpi">
+        <h3>Net variance value (received qty)</h3>
+        <div class="val mono">@Html.Raw(PesoSigned(Model.NetVarianceValue))</div>
+        <div class="meta"><span class="note">VARIANCE rows only &mdash; not a P&amp;L number</span></div>
+    </div>
+    <div class="card c4 kpi risk">
+        <h3>Gross variance exposure</h3>
+        <div class="val mono">@Peso(Model.GrossVarianceExposure)</div>
+        <div class="meta"><span class="note">VARIANCE rows, abs() &mdash; over/under-costing cancels out in the net above</span></div>
+    </div>
+
+    @* ---------------- Charts ---------------- *@
+    <div class="card c4">
+        <h3>Status breakdown</h3>
+        <div id="icrStatusChart" style="height:260px;"></div>
+    </div>
+
+    <div class="card c8">
+        <h3>Top 10 shipments by |variance value (received qty)| &mdash; where to look first</h3>
+        <div id="icrTop10Chart" style="height:280px;"></div>
+        <div id="icrTop10List" class="icr-subtable-wrap" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card c6">
+        <h3>Variance value (received qty) by supplier &mdash; VARIANCE rows only</h3>
+        <div id="icrSupplierChart" style="height:280px;"></div>
+    </div>
+
+    <div class="card c6">
+        <h3>Variance value (received qty) by branch &mdash; VARIANCE rows only</h3>
+        <div id="icrBranchChart" style="height:280px;"></div>
+    </div>
+
+    @* ---------------- Shipments table ---------------- *@
+    <div class="card c12">
+        <h3>Shipments</h3>
+
+        <div class="icr-filterrow">
+            <div class="field">
+                <label>Status</label>
+                <select id="icrFilterStatus">
+                    <option value="">All</option>
+                    @foreach (var o in statusOptions)
+                    {
+                        <option value="@o">@o</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Supplier</label>
+                <select id="icrFilterSupplier">
+                    <option value="">All</option>
+                    @foreach (var o in supplierOptions)
+                    {
+                        <option value="@o">@o</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Branch</label>
+                <select id="icrFilterBranch">
+                    <option value="">All</option>
+                    @foreach (var o in branchOptions)
+                    {
+                        <option value="@o">@o</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Recon status</label>
+                <select id="icrFilterReconStatus">
+                    <option value="">All</option>
+                    @foreach (var o in reconStatusOptions)
+                    {
+                        <option value="@o">@o</option>
+                    }
+                </select>
+            </div>
+            <div class="run">
+                <button type="button" class="btn ghost sm" id="icrClearFilters">Clear filters</button>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="gridscroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Shipment</th>
+                            <th>Supplier</th>
+                            <th>Branch</th>
+                            <th>Status</th>
+                            <th>Date order</th>
+                            <th class="n">Qty</th>
+                            <th class="n">Live unit cost</th>
+                            <th class="n">Cost incorporated</th>
+                            <th class="n">Variance</th>
+                            <th class="n" title="Variance value (received qty) &mdash; not a P&amp;L figure, see the note above">Variance value</th>
+                            <th>Recon status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="icrShipmentBody">
+                        @foreach (var s in Model.Shipments)
+                        {
+                            <tr class="icr-ship-row hc-row-clickable" tabindex="0" role="button"
+                                aria-expanded="false"
+                                aria-label="Expand linked expenses for shipment @s.ShipmentNo"
+                                data-shipment="@s.ShipmentNo"
+                                data-status="@s.Status"
+                                data-supplier="@s.SupplierName"
+                                data-branch="@s.BranchName"
+                                data-reconstatus="@s.ReconStatus">
+                                <td class="mono">@s.ShipmentNo</td>
+                                <td>@s.SupplierId - @s.SupplierName</td>
+                                <td>@s.BranchName</td>
+                                <td>@s.Status</td>
+                                <td class="mono">@s.DateOrder.ToString("yyyy-MM-dd")</td>
+                                <td class="n mono">@N3(s.TotalQty)</td>
+                                <td class="n mono">@N4(s.CurrentMaxCost)</td>
+                                <td class="n mono">@N4(s.TotalCostIncorporated)</td>
+                                <td class="n mono">@Html.Raw(N4Signed(s.Variance))</td>
+                                <td class="n mono">@Html.Raw(PesoSigned(s.VarianceValue))</td>
+                                <td><span class="pill @ReconPill(s.ReconStatus)">@s.ReconStatus</span></td>
+                            </tr>
+                        }
+                        @if (Model.Shipments.Count == 0)
+                        {
+                            <tr><td colspan="11" class="hc-empty-row">No shipments for this filter.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        <div class="hc-empty" id="icrEmptyMsg" style="display:none">No shipments match the selected filters.</div>
+    </div>
+</div>
+
+@* ================= GL TICKETS/LINES DRILLDOWN MODAL ================= *@
+<div class="modalveil" id="icrVeil" style="display:none">
+    <div class="modalbox" role="dialog" aria-modal="true" aria-labelledby="icrTitle">
+        <div class="modalhead">
+            <div>
+                <h2 id="icrTitle">GL tickets</h2>
+                <div class="sub" id="icrSub"></div>
+            </div>
+            <button class="x" id="icrCloseBtn" type="button" aria-label="Close">&times;</button>
+        </div>
+        <div class="modalbody" id="icrBody"></div>
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    // Only-ever-one-casing data: this page has no polling JSON endpoint, so
+    // the embedded payload below (exact C# PascalCase) is the only shape
+    // item-costing-recon.js needs to read. See the file's own header comment.
+    window.CORE_SHIPMENTS = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Shipments));
+    window.CORE_EXPENSES = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Expenses));
+</script>
+<script src="~/js/drilldown-modal.js" asp-append-version="true"></script>
+<script src="~/js/item-costing-recon.js" asp-append-version="true"></script>
+}

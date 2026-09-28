@@ -31,10 +31,27 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 
 builder.Services.AddAuthorization();
 
+// JSON POSTs (Hey Jude) carry the antiforgery token as a header, not a form
+// field — see the meta tag in _Layout.cshtml and wwwroot/js/hey-jude.js.
+builder.Services.AddAntiforgery(o => o.HeaderName = "X-CSRF-TOKEN");
+
 builder.Services.AddScoped<IReportRepository, SqlReportRepository>();
 builder.Services.AddScoped<IUserAuthenticator, ErpUserAuthenticator>();
 builder.Services.AddScoped<ExecutiveDashboardService>();
 builder.Services.AddScoped<AccountingDashboardService>();
+builder.Services.AddScoped<SalesDashboardService>();
+builder.Services.AddScoped<ExceptionCenterService>();
+builder.Services.AddScoped<ItemCostingReconService>();
+
+// Hey Jude: optional natural-language front end (see HeyJudeService). Left
+// unconfigured (no Anthropic:ApiKey) it degrades to a friendly message
+// rather than blocking startup — unlike the Erp connection string, this
+// feature is not core to a read-only reporting portal.
+builder.Services.AddHttpClient<HeyJudeService>(c =>
+{
+    c.BaseAddress = new Uri("https://api.anthropic.com/");
+    c.Timeout = TimeSpan.FromSeconds(20);
+});
 
 var app = builder.Build();
 
