@@ -127,6 +127,18 @@ public interface IReportRepository
     /// required, no SQL-side defaults.</summary>
     Task<ReportRunResult> GetItemCostingReconTicketsAsync(
         string referenceNumber, string invoiceNo, string shipmentNo, CancellationToken ct = default);
+
+    /* ---- Purchasing: Supplier Price Comparison --------------------------- */
+
+    /// <summary>sp_rpt_SupplierPriceComparison (sql/29) — landed cost per kg
+    /// by supplier, bucketed W/M/Y on PO DateOrder. Four result sets:
+    /// shipments, supplier x period, product x supplier x period (single-
+    /// product shipments only), linked invoices. supplierIdsCsv /
+    /// branchCodesCsv are passed straight through as CSV (null = all).</summary>
+    Task<SupplierPriceResult> GetSupplierPriceComparisonAsync(
+        DateOnly dateFrom, DateOnly dateTo, PricePeriod period,
+        string? supplierIdsCsv = null, string? branchCodesCsv = null, string? productCode = null,
+        CancellationToken ct = default);
 }
 
 public sealed class SqlReportRepository : IReportRepository
@@ -1379,6 +1391,167 @@ public sealed class SqlReportRepository : IReportRepository
             ProcName = "sp_rpt_ItemCostingRecon_ExpenseTickets",
             RenderStyle = ReportRenderStyle.Grid,
             ResultSets = resultSets
+        };
+    }
+
+    /* ======================================================================
+       PURCHASING — SUPPLIER PRICE COMPARISON (sql/29). Four result sets, read
+       in the proc's documented order. Typed DTOs (fixed shape), not the
+       generic ReportRunResult: the service and Hey Jude both compute over
+       these columns.
+    ====================================================================== */
+
+    public async Task<SupplierPriceResult> GetSupplierPriceComparisonAsync(
+        DateOnly dateFrom, DateOnly dateTo, PricePeriod period,
+        string? supplierIdsCsv = null, string? branchCodesCsv = null, string? productCode = null,
+        CancellationToken ct = default)
+    {
+        await using var conn = await OpenAsync(ct);
+        await using var cmd = Proc(conn, "dbo.sp_rpt_SupplierPriceComparison");
+        cmd.Parameters.Add("@DateFrom", SqlDbType.Date).Value = dateFrom.ToDateTime(TimeOnly.MinValue);
+        cmd.Parameters.Add("@DateTo", SqlDbType.Date).Value = dateTo.ToDateTime(TimeOnly.MinValue);
+        cmd.Parameters.Add("@Period", SqlDbType.Char, 1).Value = period.Code();
+        cmd.Parameters.Add("@SupplierIDs", SqlDbType.VarChar, -1).Value =
+            string.IsNullOrWhiteSpace(supplierIdsCsv) ? DBNull.Value : supplierIdsCsv.Trim();
+        cmd.Parameters.Add("@BranchCodes", SqlDbType.VarChar, 200).Value =
+            string.IsNullOrWhiteSpace(branchCodesCsv) ? DBNull.Value : branchCodesCsv.Trim();
+        cmd.Parameters.Add("@ProductCode", SqlDbType.VarChar, 20).Value =
+            string.IsNullOrWhiteSpace(productCode) ? DBNull.Value : productCode.Trim();
+
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+
+        static DateTime? DateN(SqlDataReader r, string col)
+        {
+            var i = r.GetOrdinal(col);
+            return r.IsDBNull(i) ? null : r.GetDateTime(i);
+        }
+
+        // Result set 1: shipments.
+        var shipments = new List<PriceShipmentRow>();
+        while (await r.ReadAsync(ct))
+        {
+            shipments.Add(new PriceShipmentRow
+            {
+                ShipmentNo = Str(r, "ShipmentNo"),
+                BranchCode = Str(r, "BranchCode"),
+                BranchName = Str(r, "BranchName"),
+                SupplierId = Str(r, "SupplierID"),
+                SupplierName = Str(r, "SupplierName"),
+                PoStatus = Str(r, "POStatus"),
+                DateOrder = r.GetDateTime(r.GetOrdinal("DateOrder")),
+                PeriodStart = r.GetDateTime(r.GetOrdinal("PeriodStart")),
+                PeriodLabel = Str(r, "PeriodLabel"),
+                OrderedKg = Dec(r, "OrderedKg"),
+                ReceivedKg = Dec(r, "ReceivedKg"),
+                ProductCount = Int(r, "ProductCount"),
+                ProductCode = Str(r, "ProductCode"),
+                ProductDescription = Str(r, "ProductDescription"),
+                IsMultiProduct = Bool(r, "IsMultiProduct"),
+                ExpenseCount = Int(r, "ExpenseCount"),
+                UnpostedExpenseCount = Int(r, "UnpostedExpenseCount"),
+                SupplierInvoiceAmount = Dec(r, "SupplierInvoiceAmount"),
+                AddOnAmount = Dec(r, "AddOnAmount"),
+                TotalLandedAmount = Dec(r, "TotalLandedAmount"),
+                SupplierPricePerKg = DecN(r, "SupplierPricePerKg"),
+                AddOnPerKg = DecN(r, "AddOnPerKg"),
+                LandedCostPerKg = DecN(r, "LandedCostPerKg"),
+                PriceStatus = Str(r, "PriceStatus")
+            });
+        }
+
+        // Result set 2: supplier x period.
+        var supplierPeriods = new List<SupplierPeriodRow>();
+        if (await r.NextResultAsync(ct))
+        {
+            while (await r.ReadAsync(ct))
+            {
+                supplierPeriods.Add(new SupplierPeriodRow
+                {
+                    PeriodStart = r.GetDateTime(r.GetOrdinal("PeriodStart")),
+                    PeriodLabel = Str(r, "PeriodLabel"),
+                    SupplierId = Str(r, "SupplierID"),
+                    SupplierName = Str(r, "SupplierName"),
+                    Shipments = Int(r, "Shipments"),
+                    MixedShipments = Int(r, "MixedShipments"),
+                    ReceivedKg = Dec(r, "ReceivedKg"),
+                    SupplierInvoiceAmount = Dec(r, "SupplierInvoiceAmount"),
+                    AddOnAmount = Dec(r, "AddOnAmount"),
+                    TotalLandedAmount = Dec(r, "TotalLandedAmount"),
+                    LandedCostPerKg = Dec(r, "LandedCostPerKg"),
+                    SupplierPricePerKg = Dec(r, "SupplierPricePerKg"),
+                    AddOnPerKg = Dec(r, "AddOnPerKg"),
+                    MinShipmentPerKg = Dec(r, "MinShipmentPerKg"),
+                    MaxShipmentPerKg = Dec(r, "MaxShipmentPerKg"),
+                    PeriodAvgPerKg = DecN(r, "PeriodAvgPerKg"),
+                    VsPeriodAvgPct = DecN(r, "VsPeriodAvgPct"),
+                    RankInPeriod = Int(r, "RankInPeriod"),
+                    SuppliersInPeriod = Int(r, "SuppliersInPeriod"),
+                    PrevPeriodStart = DateN(r, "PrevPeriodStart"),
+                    PrevLandedPerKg = DecN(r, "PrevLandedPerKg"),
+                    ChangePct = DecN(r, "ChangePct")
+                });
+            }
+        }
+
+        // Result set 3: product x supplier x period (single-product shipments).
+        var productPeriods = new List<ProductPeriodRow>();
+        if (await r.NextResultAsync(ct))
+        {
+            while (await r.ReadAsync(ct))
+            {
+                productPeriods.Add(new ProductPeriodRow
+                {
+                    PeriodStart = r.GetDateTime(r.GetOrdinal("PeriodStart")),
+                    PeriodLabel = Str(r, "PeriodLabel"),
+                    ProductCode = Str(r, "ProductCode"),
+                    ProductDescription = Str(r, "ProductDescription"),
+                    SupplierId = Str(r, "SupplierID"),
+                    SupplierName = Str(r, "SupplierName"),
+                    Shipments = Int(r, "Shipments"),
+                    ReceivedKg = Dec(r, "ReceivedKg"),
+                    TotalLandedAmount = Dec(r, "TotalLandedAmount"),
+                    LandedCostPerKg = Dec(r, "LandedCostPerKg"),
+                    SupplierPricePerKg = Dec(r, "SupplierPricePerKg"),
+                    BestPerKg = Dec(r, "BestPerKg"),
+                    VsBestPct = DecN(r, "VsBestPct"),
+                    RankForProduct = Int(r, "RankForProduct"),
+                    SuppliersForProduct = Int(r, "SuppliersForProduct"),
+                    PrevPeriodStart = DateN(r, "PrevPeriodStart"),
+                    PrevLandedPerKg = DecN(r, "PrevLandedPerKg"),
+                    ChangePct = DecN(r, "ChangePct")
+                });
+            }
+        }
+
+        // Result set 4: linked invoices.
+        var expenses = new List<PriceExpenseRow>();
+        if (await r.NextResultAsync(ct))
+        {
+            while (await r.ReadAsync(ct))
+            {
+                expenses.Add(new PriceExpenseRow
+                {
+                    ShipmentNo = Str(r, "ShipmentNo"),
+                    ReferenceNumber = Str(r, "ReferenceNumber"),
+                    InvoiceNo = Str(r, "InvoiceNo"),
+                    ExpenseSupplierId = Str(r, "ExpenseSupplierID"),
+                    ExpenseSupplierName = Str(r, "ExpenseSupplierName"),
+                    ExpenseDate = DateN(r, "ExpenseDate"),
+                    Description = Str(r, "Description"),
+                    ExpenseStatus = Str(r, "ExpenseStatus"),
+                    IsPostedToGl = Bool(r, "IsPostedToGL"),
+                    Amount = Dec(r, "Amount"),
+                    CostRole = Str(r, "CostRole")
+                });
+            }
+        }
+
+        return new SupplierPriceResult
+        {
+            Shipments = shipments,
+            SupplierPeriods = supplierPeriods,
+            ProductPeriods = productPeriods,
+            Expenses = expenses
         };
     }
 

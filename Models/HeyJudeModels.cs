@@ -74,7 +74,17 @@ public enum ReportIntent
     /// that caveat, plus the handoff doc §9 caption that most VARIANCE
     /// shipments today are expected fallout from a pre-2026-09-24 costing
     /// bug, not new problems.</summary>
-    ItemCostingRecon
+    ItemCostingRecon,
+
+    /// <summary>dbo.sp_rpt_SupplierPriceComparison (sql/29) — landed cost per
+    /// kg by PO supplier over a PO-order date range: linked ExpenseSummary
+    /// invoices / received kg, weighted by kg. Ranked through the same
+    /// SupplierPriceService.RollUpBySupplier the dashboard uses. Caveats every
+    /// answer must carry: these are actual landed costs paid, not quotations;
+    /// invoice basis (includes recoverable VAT); a mixed-product PO carries one
+    /// blended ₱/kg, so a supplier-level figure is not like-for-like unless
+    /// the suppliers ship the same cuts.</summary>
+    SupplierPriceComparison
 }
 
 /// <summary>The LLM's tool-call arguments — its only degrees of freedom.</summary>
@@ -103,6 +113,10 @@ public sealed class RunReportArgs
     /// receivable"). Resolved against the real chart of accounts in C#,
     /// never assumed correct as typed.</summary>
     public string? AccountCode { get; set; }
+
+    /// <summary>For supplier_price_comparison only — weekly / monthly /
+    /// yearly grain. Null -&gt; monthly.</summary>
+    public PricePeriod? Period { get; set; }
 }
 
 public sealed class HeyJudeRequest

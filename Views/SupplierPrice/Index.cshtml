@@ -1,0 +1,358 @@
+@model SupplierPriceViewModel
+@{
+    ViewData["Title"] = "Supplier Price Comparison";
+
+    // Money 2dp, ₱/kg 4dp, kg 3dp, % 1dp. Same conventions as Item Costing Recon.
+    string Peso(decimal v) => "₱" + v.ToString("#,##0.00");
+    string PerKg(decimal? v) => v.HasValue ? "₱" + v.Value.ToString("#,##0.0000") : "&ndash;";
+    string Kg(decimal v) => v.ToString("#,##0.000");
+
+    // A price going UP is bad for the buyer, so a positive change reads as
+    // risk red and a negative change as good green. Only on the change and
+    // vs-average columns, so red stays rationed.
+    string PctChange(decimal? v)
+    {
+        if (!v.HasValue) return "<span class=\"spc-note\">&ndash;</span>";
+        var s = (v.Value > 0 ? "+" : "") + v.Value.ToString("0.0") + "%";
+        if (v.Value > 0.05m) return "<span class=\"neg\">" + s + "</span>";
+        if (v.Value < -0.05m) return "<span class=\"pos\">" + s + "</span>";
+        return s;
+    }
+
+    string LinkPill(string s) => s switch
+    {
+        "MATCHES" => "p-ok",
+        "DIFFERS" => "p-warn",
+        _ => "p-neu"
+    };
+
+    var periodCode = Model.Period.Code();
+    var exportUrl = Url.Action("ExportExcel", "SupplierPrice", new
+    {
+        dateFrom = Model.DateFrom.ToString("yyyy-MM-dd"),
+        dateTo = Model.DateTo.ToString("yyyy-MM-dd"),
+        period = periodCode,
+        productCode = Model.ProductCode
+    });
+    var refreshUrl = Url.Action("Index", "SupplierPrice", new
+    {
+        dateFrom = Model.DateFrom.ToString("yyyy-MM-dd"),
+        dateTo = Model.DateTo.ToString("yyyy-MM-dd"),
+        period = periodCode,
+        productCode = Model.ProductCode,
+        force = true
+    });
+
+    var periodOptions = Model.Data.SupplierPeriods.Select(p => p.PeriodLabel).Distinct().ToList();
+    var supplierOptions = Model.Data.Shipments.Select(s => s.SupplierName).Distinct().OrderBy(x => x).ToList();
+    var productOptions = Model.Data.ProductPeriods.Select(p => p.ProductDescription).Distinct().OrderBy(x => x).ToList();
+}
+
+<div class="pagehead">
+    <h1>Supplier Price Comparison</h1>
+    <p>What each supplier's meat actually cost us per kilo once it landed, @Model.Period.Label().ToLowerInvariant(),
+       by PO order date. Landed cost per kg is the sum of the invoices linked to a shipment divided by the kilos
+       received. Generated @Model.GeneratedAt.ToString("MMM d, yyyy HH:mm").</p>
+</div>
+
+<form method="get" asp-action="Index" class="parambar">
+    <div class="field">
+        <label>View</label>
+        <select name="period">
+            <option value="W" selected="@(Model.Period == PricePeriod.Weekly)">Weekly</option>
+            <option value="M" selected="@(Model.Period == PricePeriod.Monthly)">Monthly</option>
+            <option value="Y" selected="@(Model.Period == PricePeriod.Yearly)">Yearly</option>
+        </select>
+    </div>
+    <div class="field">
+        <label>PO date from</label>
+        <input type="date" name="dateFrom" value="@Model.DateFrom.ToString("yyyy-MM-dd")" />
+    </div>
+    <div class="field">
+        <label>PO date to</label>
+        <input type="date" name="dateTo" value="@Model.DateTo.ToString("yyyy-MM-dd")" />
+    </div>
+    <div class="field">
+        <label>Product code</label>
+        <input type="text" name="productCode" value="@Model.ProductCode" placeholder="all products" />
+    </div>
+    <div class="run">
+        <button type="submit" class="btn">Apply</button>
+        <a class="btn ghost" href="@refreshUrl">Refresh</a>
+        <a class="btn ghost" href="@exportUrl">Export Excel</a>
+    </div>
+</form>
+
+<div class="hc-truncated-note">
+    <b>How to read this.</b> These are <b>actual landed costs paid</b>, not quotations. Nothing in the ERP
+    records a supplier's offer before the PO. The figures are on the <b>invoice basis</b>: they include any
+    recoverable input VAT on the linked invoices. The <b>Inventory-costed ₱/kg</b> column in the shipments
+    table is the ERP's own capitalised figure, for comparison.<br />
+    A PO with several products gets <b>one blended ₱/kg</b>, because PO lines carry no cost of their own.
+    @Model.MixedShipments of @Model.PricedShipments priced shipments are mixed. For a like-for-like
+    comparison, use the <b>By product</b> table, which only uses single-product shipments.
+    @if (Model.NotReceivedShipments > 0)
+    {
+        <br /><span>@Model.NotReceivedShipments shipment@(Model.NotReceivedShipments == 1 ? " has" : "s have")
+        invoices but nothing received yet, so no ₱/kg. They're listed but left out of every average.</span>
+    }
+    @if (!Model.ReconCrossCheckAvailable)
+    {
+        <br /><span>The ERP recon cross-check (sp_rpt_ItemCostingRecon_List) could not be read on this database,
+        so the inventory-costed column and link check are unavailable.</span>
+    }
+</div>
+
+<div class="grid">
+    <div class="card c3 kpi">
+        <h3>Weighted landed cost</h3>
+        <div class="val mono">@Html.Raw(PerKg(Model.WeightedLandedPerKg))<span class="cur"> /kg</span></div>
+        <div class="meta"><span class="spc-note">all priced shipments, weighted by kg</span></div>
+    </div>
+    <div class="card c3 kpi">
+        <h3>Kilos received</h3>
+        <div class="val mono">@Kg(Model.ReceivedKg)</div>
+        <div class="meta"><span class="spc-note">@Model.PricedShipments.ToString("#,##0") priced shipments</span></div>
+    </div>
+    <div class="card c3 kpi">
+        <h3>Total landed cost</h3>
+        <div class="val mono">@Peso(Model.TotalLandedAmount)</div>
+        <div class="meta"><span class="spc-note">linked invoices on priced shipments</span></div>
+    </div>
+    <div class="card c3 kpi">
+        <h3>Add-on share</h3>
+        <div class="val">@(Model.AddOnSharePct.HasValue ? Model.AddOnSharePct.Value.ToString("0.0") + "%" : "–")</div>
+        <div class="meta"><span class="spc-note">freight, broker, customs and other invoices not from the PO supplier</span></div>
+    </div>
+
+    <div class="card c8">
+        <h3>Landed ₱/kg by supplier &mdash; @Model.Period.Label().ToLowerInvariant() trend</h3>
+        <div id="spcTrendChart" style="height:300px;"></div>
+        <div class="spc-note" style="margin-top:6px">Up to 6 suppliers with the most kilos in range. A gap in a line means no
+            priced shipment from that supplier in that period.</div>
+    </div>
+
+    <div class="card c4">
+        <h3>Whole-range ranking &mdash; cheapest first</h3>
+        <div id="spcRankChart" style="height:300px;"></div>
+        <div class="spc-note" style="margin-top:6px">Supplier's own invoice vs. add-ons, ₱/kg, weighted over the whole range.</div>
+    </div>
+
+    @* ---------------- Supplier x period ---------------- *@
+    <div class="card c12">
+        <h3>By supplier and period</h3>
+        <div class="icr-filterrow">
+            <div class="field">
+                <label>Period</label>
+                <select id="spcFilterPeriod">
+                    <option value="">All</option>
+                    @foreach (var o in periodOptions)
+                    {
+                        <option value="@o">@o</option>
+                    }
+                </select>
+            </div>
+            <div class="field">
+                <label>Supplier</label>
+                <select id="spcFilterSupplier">
+                    <option value="">All</option>
+                    @foreach (var o in supplierOptions)
+                    {
+                        <option value="@o">@o</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="gridscroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Period</th>
+                            <th>Supplier</th>
+                            <th class="n">Rank</th>
+                            <th class="n">Shipments</th>
+                            <th class="n">Received kg</th>
+                            <th class="n">Supplier ₱/kg</th>
+                            <th class="n">Add-on ₱/kg</th>
+                            <th class="n">Landed ₱/kg</th>
+                            <th class="n" title="Cheapest and dearest single shipment in the period">Range ₱/kg</th>
+                            <th class="n" title="Weighted average of all suppliers in the same period">vs period avg</th>
+                            <th class="n" title="vs this supplier's previous period with a priced shipment">Change</th>
+                        </tr>
+                    </thead>
+                    <tbody id="spcSupplierBody">
+                        @foreach (var x in Model.Data.SupplierPeriods)
+                        {
+                            <tr class="spc-sp-row" data-period="@x.PeriodLabel" data-supplier="@x.SupplierName">
+                                <td class="mono">@x.PeriodLabel</td>
+                                <td>@x.SupplierId - @x.SupplierName
+                                    @if (x.MixedShipments > 0)
+                                    {
+                                        <span class="pill p-neu" title="@x.MixedShipments of @x.Shipments shipments are mixed-product (blended ₱/kg)">@x.MixedShipments mixed</span>
+                                    }
+                                </td>
+                                <td class="n mono">@x.RankInPeriod / @x.SuppliersInPeriod</td>
+                                <td class="n mono">@x.Shipments</td>
+                                <td class="n mono">@Kg(x.ReceivedKg)</td>
+                                <td class="n mono">@Html.Raw(PerKg(x.SupplierPricePerKg))</td>
+                                <td class="n mono">@Html.Raw(PerKg(x.AddOnPerKg))</td>
+                                <td class="n mono"><b>@Html.Raw(PerKg(x.LandedCostPerKg))</b></td>
+                                <td class="n mono">@x.MinShipmentPerKg.ToString("#,##0.00") &ndash; @x.MaxShipmentPerKg.ToString("#,##0.00")</td>
+                                <td class="n mono">@Html.Raw(PctChange(x.VsPeriodAvgPct))</td>
+                                <td class="n mono" title="@(x.PrevPeriodStart.HasValue ? "vs period starting " + x.PrevPeriodStart.Value.ToString("yyyy-MM-dd") : "no earlier priced period in range")">@Html.Raw(PctChange(x.ChangePct))</td>
+                            </tr>
+                        }
+                        @if (Model.Data.SupplierPeriods.Count == 0)
+                        {
+                            <tr><td colspan="11" class="hc-empty-row">No priced shipments for this filter.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    @* ---------------- Product x supplier (like-for-like) ---------------- *@
+    <div class="card c12">
+        <h3>By product &mdash; like-for-like (single-product shipments only)</h3>
+        <div class="icr-filterrow">
+            <div class="field">
+                <label>Product</label>
+                <select id="spcFilterProduct">
+                    <option value="">All</option>
+                    @foreach (var o in productOptions)
+                    {
+                        <option value="@o">@o</option>
+                    }
+                </select>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="gridscroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Period</th>
+                            <th>Product</th>
+                            <th>Supplier</th>
+                            <th class="n">Rank</th>
+                            <th class="n">Shipments</th>
+                            <th class="n">Received kg</th>
+                            <th class="n">Supplier ₱/kg</th>
+                            <th class="n">Landed ₱/kg</th>
+                            <th class="n" title="Cheapest supplier for this product in this period">Best ₱/kg</th>
+                            <th class="n">vs best</th>
+                            <th class="n" title="vs this supplier's previous priced period for this product">Change</th>
+                        </tr>
+                    </thead>
+                    <tbody id="spcProductBody">
+                        @foreach (var x in Model.Data.ProductPeriods)
+                        {
+                            <tr class="spc-pp-row" data-product="@x.ProductDescription">
+                                <td class="mono">@x.PeriodLabel</td>
+                                <td><span class="mono">@x.ProductCode</span> @x.ProductDescription</td>
+                                <td>@x.SupplierId - @x.SupplierName</td>
+                                <td class="n mono">@x.RankForProduct / @x.SuppliersForProduct</td>
+                                <td class="n mono">@x.Shipments</td>
+                                <td class="n mono">@Kg(x.ReceivedKg)</td>
+                                <td class="n mono">@Html.Raw(PerKg(x.SupplierPricePerKg))</td>
+                                <td class="n mono"><b>@Html.Raw(PerKg(x.LandedCostPerKg))</b></td>
+                                <td class="n mono">@Html.Raw(PerKg(x.BestPerKg))</td>
+                                <td class="n mono">@Html.Raw(x.SuppliersForProduct > 1 ? PctChange(x.VsBestPct) : "<span class=\"spc-note\">only supplier</span>")</td>
+                                <td class="n mono">@Html.Raw(PctChange(x.ChangePct))</td>
+                            </tr>
+                        }
+                        @if (Model.Data.ProductPeriods.Count == 0)
+                        {
+                            <tr><td colspan="11" class="hc-empty-row">No single-product priced shipments for this filter.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    @* ---------------- Shipments ---------------- *@
+    <div class="card c12">
+        <h3>Shipments &mdash; click a row for its linked invoices</h3>
+        <div class="panel">
+            <div class="gridscroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Shipment</th>
+                            <th>PO date</th>
+                            <th>Supplier</th>
+                            <th>Branch</th>
+                            <th>Product</th>
+                            <th class="n">Received kg</th>
+                            <th class="n">Invoices</th>
+                            <th class="n">Total landed</th>
+                            <th class="n">Landed ₱/kg</th>
+                            <th class="n" title="ERP recon: the part of the invoices capitalised to inventory, per unit">Inventory-costed ₱/kg</th>
+                            <th title="Does the ERP recon link the same invoice total to this shipment?">Link check</th>
+                        </tr>
+                    </thead>
+                    <tbody id="spcShipmentBody">
+                        @foreach (var s in Model.Data.Shipments)
+                        {
+                            <tr class="spc-ship-row hc-row-clickable" tabindex="0" role="button" aria-expanded="false"
+                                aria-label="Show linked invoices for shipment @s.ShipmentNo"
+                                data-shipment="@s.ShipmentNo">
+                                <td class="mono">@s.ShipmentNo</td>
+                                <td class="mono">@s.DateOrder.ToString("yyyy-MM-dd")</td>
+                                <td>@s.SupplierId - @s.SupplierName</td>
+                                <td><span class="mono">@s.BranchCode</span> @s.BranchName</td>
+                                <td>@s.ProductDescription</td>
+                                <td class="n mono">@Kg(s.ReceivedKg)</td>
+                                <td class="n mono">@s.ExpenseCount@(s.UnpostedExpenseCount > 0 ? $" ({s.UnpostedExpenseCount} unposted)" : "")</td>
+                                <td class="n mono">@Peso(s.TotalLandedAmount)</td>
+                                <td class="n mono">
+                                    @if (s.PriceStatus == "PRICED")
+                                    {
+                                        <b>@Html.Raw(PerKg(s.LandedCostPerKg))</b>
+                                    }
+                                    else
+                                    {
+                                        <span class="pill p-warn">NOT RECEIVED</span>
+                                    }
+                                </td>
+                                <td class="n mono">@Html.Raw(PerKg(s.InventoryCostedPerKg))</td>
+                                <td><span class="pill @LinkPill(s.LinkCheck)">@s.LinkCheck</span></td>
+                            </tr>
+                        }
+                        @if (Model.Data.Shipments.Count == 0)
+                        {
+                            <tr><td colspan="11" class="hc-empty-row">No shipments with linked invoices for this filter.</td></tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        @if (Model.LinkDiffers > 0)
+        {
+            <div class="spc-note" style="margin-top:8px">@Model.LinkDiffers shipment@(Model.LinkDiffers == 1 ? "" : "s") show
+                <span class="pill p-warn">DIFFERS</span>: this report and the ERP's Item Costing Recon link different invoice
+                totals to the same PO. Check the linked invoices before trusting that shipment's ₱/kg.</div>
+        }
+    </div>
+</div>
+
+@section Scripts {
+<script>
+    // Embedded with no naming policy, so exact C# PascalCase, same as
+    // Item Costing Recon.
+    window.CORE_SPC = {
+        periodLabel: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Period.Label())),
+        supplierPeriods: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Data.SupplierPeriods)),
+        supplierRange: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.SupplierRange.Select(r => new
+        {
+            r.SupplierId, r.SupplierName, r.ReceivedKg, r.Shipments,
+            r.LandedCostPerKg, r.SupplierPricePerKg, r.AddOnPerKg
+        }))),
+        expenses: @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.Data.Expenses))
+    };
+</script>
+<script src="~/js/supplier-price.js" asp-append-version="true"></script>
+}

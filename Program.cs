@@ -42,6 +42,7 @@ builder.Services.AddScoped<AccountingDashboardService>();
 builder.Services.AddScoped<SalesDashboardService>();
 builder.Services.AddScoped<ExceptionCenterService>();
 builder.Services.AddScoped<ItemCostingReconService>();
+builder.Services.AddScoped<SupplierPriceService>();
 
 // Hey Jude: optional natural-language front end (see HeyJudeService). Left
 // unconfigured (no Anthropic:ApiKey) it degrades to a friendly message

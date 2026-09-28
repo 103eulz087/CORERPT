@@ -48,6 +48,14 @@ CDN, cookie auth with department roles. Deployed to IIS on Windows Server.
   handoff's §10 (production DB choice, per-user branch filtering, received-
   qty vs. on-hand variance, whether to wait on the historical cost
   correction) are still with the developer, unresolved.
+- **Supplier Price Comparison** — BUILT, NOT YET APPLIED TO THE DB (2026-09-29).
+  Landed ₱/kg by PO supplier, weekly/monthly/yearly, over
+  `sp_rpt_SupplierPriceComparison` (`sql/29`): linked `ExpenseSummary`
+  invoices ÷ `PODETAILS.ActualQuantity`, weighted by kg, cross-checked per
+  shipment against `sp_rpt_ItemCostingRecon_List`. Written while the DB was
+  unreachable — apply to COREX001 and run `sql/29`'s smoke tests + "VERIFY
+  LIVE" list before trusting it. Caveats and open questions:
+  `docs/brief-supplier-price-comparison.md`.
 - Marketing, Operations, Audit — designed (see `docs/`), not built.
 
 ---
@@ -60,7 +68,7 @@ dotnet run                    # loads appsettings.Development.json -> DEV db, De
 dotnet publish -c Release -r win-x64 --self-contained false -o ./publish
 ```
 
-No test project exists yet. `dotnet run` uses the `DevAuth` stub in
+No test project exists yet. If `dotnet` is missing in a cloud container, `apt-get update && apt-get install -y dotnet-sdk-8.0` works (Microsoft's own download host may be blocked by the network policy). `dotnet run` uses the `DevAuth` stub in
 `appsettings.Development.json` (`Controllers/DashboardController.cs`,
 `ErpUserAuthenticator`) — log in with one of the configured passwords
 (`exec`/`acct`/`audit`/`admin`) mapped to department roles. `Program.cs`

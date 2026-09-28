@@ -64,6 +64,15 @@
             }
         }
 
+        @if (InRole("Executive") || InRole("Accounting") || InRole("Audit") || InRole("Operations"))
+        {
+            <div class="grp">Purchasing</div>
+            <a href="@Url.Action("Index", "SupplierPrice")"
+               class="@(currentController == "SupplierPrice" ? "on" : "")">
+                <span class="ic">&#9642;</span>Supplier Price Comparison
+            </a>
+        }
+
         @if (InRole("Accounting") || InRole("Audit") || InRole("Executive"))
         {
             <div class="grp">Data Quality</div>

@@ -47,7 +47,8 @@ public sealed class HeyJudeService
                        "sales, sales trend, branch or agent ranking, AR/AP aging, top customers/" +
                        "suppliers, daily invoice activity, business-process exceptions, " +
                        "data-quality/ledger-integrity health, inventory on hand per branch, " +
-                       "cash and bank position, item/landed-costing reconciliation, or a full " +
+                       "cash and bank position, item/landed-costing reconciliation, supplier landed " +
+                       "price per kilo comparison, or a full " +
                        "financial statement/ledger/pivot from the Report Center catalog.",
         input_schema = new
         {
@@ -65,7 +66,7 @@ public sealed class HeyJudeService
                         "daily_activity", "agent_ranking",
                         "exception_center_summary", "data_health_check",
                         "financial_report", "inventory_by_branch", "cash_position",
-                        "item_costing_recon", "unsupported"
+                        "item_costing_recon", "supplier_price_comparison", "unsupported"
                     },
                     description = "Which report answers the question."
                 },
@@ -101,6 +102,13 @@ public sealed class HeyJudeService
                         "gl_detail_transactions", "bank_reconciliation"
                     },
                     description = "For financial_report only — which Report Center report to run."
+                },
+                period = new
+                {
+                    type = "string",
+                    @enum = new[] { "weekly", "monthly", "yearly" },
+                    description = "For supplier_price_comparison only: the grain the user asked for " +
+                                   "(\"weekly\", \"per month\", \"yearly\"). Omit for monthly."
                 },
                 account_code = new
                 {
@@ -224,7 +232,15 @@ public sealed class HeyJudeService
             "brokerage/duty invoices justify, for shipments (POs) ORDERED in a date range (not a " +
             "point-in-time report). Use for \"landed cost\", \"item costing\", \"is our inventory " +
             "valuation right\", \"costing variance\" questions. No branch dimension — leave " +
-            "branch_code unset for this intent.\n\n" +
+            "branch_code unset for this intent.\n" +
+            "- supplier_price_comparison: which SUPPLIER's meat cost us the least/most per kilo once " +
+            "landed (supplier invoice + freight/broker/customs add-ons, divided by kilos received), " +
+            "for POs ORDERED in a date range, optionally bucketed by period (weekly/monthly/yearly). " +
+            "Use for \"cheapest supplier\", \"supplier price per kilo\", \"compare supplier prices\", " +
+            "\"landed cost per kg by supplier\", \"did supplier X get more expensive\" questions. " +
+            "NOT item_costing_recon (that asks whether inventory is carried at the right cost, not " +
+            "which supplier is cheaper) and NOT ap_top_suppliers (that is money we still owe). " +
+            "branch_code optional (receiving branch); top_n optional.\n\n" +
             "Rules:\n" +
             "- date_from and date_to are required, format YYYY-MM-DD, date_from <= date_to.\n" +
             "- branch_code is optional, one of the known codes above. Only set it when the user " +
@@ -331,6 +347,7 @@ public sealed class HeyJudeService
                 "inventory_by_branch" => ReportIntent.InventoryByBranch,
                 "cash_position" => ReportIntent.CashPosition,
                 "item_costing_recon" => ReportIntent.ItemCostingRecon,
+                "supplier_price_comparison" => ReportIntent.SupplierPriceComparison,
                 _ => ReportIntent.Unsupported
             };
         }
@@ -371,6 +388,12 @@ public sealed class HeyJudeService
             args.ReportName = string.IsNullOrWhiteSpace(rn) ? null : rn!.Trim();
         }
 
+        if (input.TryGetProperty("period", out var periodEl) && periodEl.ValueKind == JsonValueKind.String)
+        {
+            var pv = periodEl.GetString();
+            args.Period = string.IsNullOrWhiteSpace(pv) ? null : PricePeriodExtensions.Parse(pv);
+        }
+
         if (input.TryGetProperty("account_code", out var acctEl) && acctEl.ValueKind == JsonValueKind.String)
         {
             var ac = acctEl.GetString();
@@ -392,10 +415,12 @@ public sealed class HeyJudeService
                 Answer = "I can currently answer questions about sales, sales trend, branch/agent " +
                          "ranking, AR/AP aging, top customers/suppliers, daily invoice activity, " +
                          "exception findings, data health, inventory on hand per branch, cash and " +
-                         "bank position, item costing/landed-cost reconciliation, and I can also run " +
+                         "bank position, item costing/landed-cost reconciliation, supplier landed " +
+                         "price per kilo comparison (weekly/monthly/yearly), and I can also run " +
                          "any Report Center statement/ledger/pivot (balance sheet, trial balance, " +
                          "income statement, GL detail, bank reconciliation). Try something like " +
-                         "\"top 3 branches this month\", \"how much cash do we have\", or \"show me " +
+                         "\"top 3 branches this month\", \"cheapest supplier per kilo this year\", " +
+                         "\"how much cash do we have\", or \"show me " +
                          "the balance sheet as of today\"."
             };
         }
@@ -877,6 +902,64 @@ public sealed class HeyJudeService
                 }
                 break;
             }
+            case ReportIntent.SupplierPriceComparison:
+            {
+                // Same proc + same whole-range rollup as the Supplier Price
+                // Comparison page, so the ranking here can't drift from it.
+                var grain = args.Period ?? PricePeriod.Monthly;
+                var data = await _repo.GetSupplierPriceComparisonAsync(
+                    from, to, grain, branchCodesCsv: filter.BranchCsv, ct: ct);
+
+                var ranked = SupplierPriceService.RollUpBySupplier(data.Shipments);
+                var notReceived = data.Shipments.Count(s => s.PriceStatus == "NOT RECEIVED");
+                if (ranked.Count == 0)
+                {
+                    answer = $"No POs ordered {filter.PeriodLabel} have both linked invoices and received kilos, " +
+                             "so there's no landed cost per kilo to compare yet" +
+                             (notReceived > 0 ? $" ({notReceived} have invoices but nothing received)." : ".");
+                    break;
+                }
+
+                var totalKg = ranked.Sum(r => r.ReceivedKg);
+                var totalLanded = ranked.Sum(r => r.TotalLandedAmount);
+                var mixed = ranked.Sum(r => r.MixedShipments);
+                var shipments = ranked.Sum(r => r.Shipments);
+                var cheapest = ranked[0];
+                var dearest = ranked[^1];
+
+                var topN = Math.Min(args.TopN ?? 5, ranked.Count);
+                var shown = ranked.Take(topN).ToList();
+                var list = string.Join("; ", shown.Select((r, i) =>
+                    $"{i + 1}. {r.SupplierName} {PerKg(r.LandedCostPerKg)} ({r.ReceivedKg:N0} kg)"));
+
+                answer = $"Landed cost per kilo by supplier for POs ordered {filter.PeriodLabel}" +
+                         (filter.BranchCodes.Count > 0 ? $" (branch {filter.BranchCodes[0]})" : "") +
+                         $": {ranked.Count} supplier{(ranked.Count == 1 ? "" : "s")}, {shipments} priced " +
+                         $"shipment{(shipments == 1 ? "" : "s")}, {totalKg:N0} kg, weighted average " +
+                         $"{PerKg(totalKg == 0 ? 0 : totalLanded / totalKg)}. Cheapest first — {list}." +
+                         (ranked.Count > 1
+                             ? $" Spread cheapest-to-dearest: {PerKg(dearest.LandedCostPerKg - cheapest.LandedCostPerKg)}."
+                             : "") +
+                         " These are actual landed costs paid (supplier invoice plus freight/broker/customs " +
+                         "add-ons, divided by kilos received), not quotations, and on the invoice basis, so " +
+                         "they include any recoverable VAT." +
+                         (mixed > 0
+                             ? $" {mixed} of those shipments mixed several products into one blended ₱/kg, so " +
+                               "compare suppliers like-for-like in the By product table before drawing conclusions."
+                             : "") +
+                         (notReceived > 0 ? $" {notReceived} shipment{(notReceived == 1 ? " has" : "s have")} invoices but nothing received yet, left out." : "") +
+                         $" The {grain.Label().ToLowerInvariant()} breakdown is on the Supplier Price Comparison page.";
+
+                chart = new ChartSeries
+                {
+                    Type = "bar",
+                    Title = $"Landed ₱/kg by supplier, cheapest first — {filter.PeriodLabel}",
+                    ValueLabel = "₱ per kg",
+                    Labels = shown.Select(r => r.SupplierName).ToList(),
+                    Values = shown.Select(r => Math.Round(r.LandedCostPerKg, 2)).ToList()
+                };
+                break;
+            }
             case ReportIntent.FinancialReport:
             {
                 if (string.IsNullOrWhiteSpace(args.ReportName) ||
@@ -997,4 +1080,6 @@ public sealed class HeyJudeService
     }
 
     private static string Peso(decimal v) => "₱" + v.ToString("N2", CultureInfo.InvariantCulture);
+
+    private static string PerKg(decimal v) => "₱" + v.ToString("N2", CultureInfo.InvariantCulture) + "/kg";
 }
