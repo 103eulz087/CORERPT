@@ -51,7 +51,9 @@ public sealed class SupplierPriceService
     /// without an unreadable chart.</summary>
     public static DateOnly DefaultFrom(PricePeriod period, DateOnly today) => period switch
     {
-        PricePeriod.Weekly => today.AddDays(-7 * 12),                            // ~12 weeks
+        // 12 whole weeks, snapped back to a Monday so the first bucket
+        // isn't a partial week (the proc's weeks start on Monday).
+        PricePeriod.Weekly => today.AddDays(-7 * 12 - ((int)today.DayOfWeek + 6) % 7),
         PricePeriod.Yearly => new DateOnly(today.Year - 2, 1, 1),                // 3 calendar years
         _ => new DateOnly(today.Year, today.Month, 1).AddMonths(-11)             // 12 months
     };
@@ -92,12 +94,14 @@ public sealed class SupplierPriceService
 
             PricedShipments = priced.Count,
             NotReceivedShipments = data.Shipments.Count(s => s.PriceStatus == "NOT RECEIVED"),
+            IncompleteShipments = data.Shipments.Count(s => s.PriceStatus == "INCOMPLETE"),
+            NoPoLineShipments = data.Shipments.Count(s => s.PriceStatus == "NO PO LINES"),
             MixedShipments = priced.Count(s => s.IsMultiProduct),
             ReceivedKg = kg,
             TotalLandedAmount = landed,
             WeightedLandedPerKg = kg == 0 ? null : Math.Round(landed / kg, 4),
             AddOnSharePct = landed == 0 ? null : Math.Round(addOn * 100m / landed, 2),
-            UnpostedInvoices = data.Shipments.Sum(s => s.UnpostedExpenseCount),
+            UnpostedInvoices = priced.Sum(s => s.UnpostedExpenseCount),
 
             ReconCrossCheckAvailable = reconAvailable,
             LinkDiffers = data.Shipments.Count(s => s.LinkCheck == "DIFFERS"),
@@ -144,13 +148,16 @@ public sealed class SupplierPriceService
             return true;
 
         Dictionary<string, ReconShipmentRow> recon;
+        HashSet<string> dupes;
         try
         {
             var (reconShipments, _) = await _repo.GetItemCostingReconAsync(
                 from, to, shipmentNo: null, onlyWithExpenses: true, ct);
-            recon = reconShipments
-                .GroupBy(r => r.ShipmentNo)
-                .ToDictionary(g => g.Key, g => g.First());
+            // A shipment the recon returns twice is itself a finding: flag
+            // it DUPLICATE IN RECON rather than silently picking one row.
+            var groups = reconShipments.GroupBy(r => r.ShipmentNo).ToList();
+            dupes = groups.Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet();
+            recon = groups.ToDictionary(g => g.Key, g => g.First());
         }
         catch (SqlException ex)
         {
@@ -168,14 +175,25 @@ public sealed class SupplierPriceService
                 continue;
             }
 
+            if (dupes.Contains(s.ShipmentNo))
+            {
+                s.LinkCheck = "DUPLICATE IN RECON";
+                continue;
+            }
+
             s.ReconInvoiceAmount = r.TotalInvoiceAmount;
-            // The recon's own per-unit figure (TotalInventoryCost / its
-            // TotalQty). Shown as the proc returned it, not recomputed over
-            // this report's received kg; the two quantity bases can differ.
-            s.InventoryCostedPerKg = r.TotalQty > 0 ? r.TotalCostIncorporated : null;
-            s.LinkCheck = Math.Abs(r.TotalInvoiceAmount - s.TotalLandedAmount) <= LinkTolerance
-                ? "MATCHES"
-                : "DIFFERS";
+            s.ReconQty = r.TotalQty;
+            // The recon's inventory-capitalised pesos divided by THIS
+            // report's received kg, so the gap against LandedCostPerKg is
+            // purely VAT/non-inventory lines, not a different quantity base
+            // (the recon divides by Inventory.Quantity). A quantity
+            // difference is flagged separately via ReconQty.
+            s.InventoryCostedPerKg = s.ReceivedKg > 0
+                ? Math.Round(r.TotalInventoryCost / s.ReceivedKg, 4)
+                : null;
+            var sameInvoices = r.LinkedExpenseCount == s.ExpenseCount &&
+                               Math.Abs(r.TotalInvoiceAmount - s.TotalLandedAmount) <= LinkTolerance;
+            s.LinkCheck = sameInvoices ? "MATCHES" : "DIFFERS";
         }
 
         return true;

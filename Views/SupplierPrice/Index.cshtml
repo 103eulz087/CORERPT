@@ -91,10 +91,20 @@
     A PO with several products gets <b>one blended ₱/kg</b>, because PO lines carry no cost of their own.
     @Model.MixedShipments of @Model.PricedShipments priced shipments are mixed. For a like-for-like
     comparison, use the <b>By product</b> table, which only uses single-product shipments.
-    @if (Model.NotReceivedShipments > 0)
+    <br /><b>Supplier-level ranks compare whatever each supplier shipped.</b> A beef supplier and a pork supplier
+    are ranked against each other there, and VAT-registered suppliers carry up to 12% more on the invoice basis.
+    Use the By product table to decide who is actually cheaper.<br />
+    <b>The latest period or two are provisional.</b> Freight, broker and customs invoices often post weeks after
+    the PO. <span class="mono">FOR CONFIRMATION</span> POs can still have their received kilos changed.
+    @{
+        var excluded = new List<string>();
+        if (Model.IncompleteShipments > 0) excluded.Add($"{Model.IncompleteShipments} with kilos received but no invoice from the PO supplier yet (INCOMPLETE)");
+        if (Model.NotReceivedShipments > 0) excluded.Add($"{Model.NotReceivedShipments} with invoices but nothing received (NOT RECEIVED)");
+        if (Model.NoPoLineShipments > 0) excluded.Add($"{Model.NoPoLineShipments} with no PO lines at all, e.g. migrated history (NO PO LINES)");
+    }
+    @if (excluded.Count > 0)
     {
-        <br /><span>@Model.NotReceivedShipments shipment@(Model.NotReceivedShipments == 1 ? " has" : "s have")
-        invoices but nothing received yet, so no ₱/kg. They're listed but left out of every average.</span>
+        <br /><span>Listed below but left out of every ₱/kg and average: @string.Join("; ", excluded).</span>
     }
     @if (!Model.ReconCrossCheckAvailable)
     {
@@ -112,7 +122,7 @@
     <div class="card c3 kpi">
         <h3>Kilos received</h3>
         <div class="val mono">@Kg(Model.ReceivedKg)</div>
-        <div class="meta"><span class="spc-note">@Model.PricedShipments.ToString("#,##0") priced shipments</span></div>
+        <div class="meta"><span class="spc-note">@Model.PricedShipments.ToString("#,##0") priced shipments@(Model.UnpostedInvoices > 0 ? $" · {Model.UnpostedInvoices} invoice{(Model.UnpostedInvoices == 1 ? "" : "s")} not yet posted to GL" : "")</span></div>
     </div>
     <div class="card c3 kpi">
         <h3>Total landed cost</h3>
@@ -135,7 +145,8 @@
     <div class="card c4">
         <h3>Whole-range ranking &mdash; cheapest first</h3>
         <div id="spcRankChart" style="height:300px;"></div>
-        <div class="spc-note" style="margin-top:6px">Supplier's own invoice vs. add-ons, ₱/kg, weighted over the whole range.</div>
+        <div class="spc-note" style="margin-top:6px">Supplier's own invoice vs. add-ons, ₱/kg, weighted over the whole range.
+            Compares across products; see By product for like-for-like.</div>
     </div>
 
     @* ---------------- Supplier x period ---------------- *@
@@ -170,7 +181,7 @@
                         <tr>
                             <th>Period</th>
                             <th>Supplier</th>
-                            <th class="n">Rank</th>
+                            <th class="n" title="Cheapest = 1, across all products each supplier shipped in the period. Not like-for-like; see By product.">Rank</th>
                             <th class="n">Shipments</th>
                             <th class="n">Received kg</th>
                             <th class="n">Supplier ₱/kg</th>
@@ -260,7 +271,7 @@
                                 <td class="n mono"><b>@Html.Raw(PerKg(x.LandedCostPerKg))</b></td>
                                 <td class="n mono">@Html.Raw(PerKg(x.BestPerKg))</td>
                                 <td class="n mono">@Html.Raw(x.SuppliersForProduct > 1 ? PctChange(x.VsBestPct) : "<span class=\"spc-note\">only supplier</span>")</td>
-                                <td class="n mono">@Html.Raw(PctChange(x.ChangePct))</td>
+                                <td class="n mono" title="@(x.PrevPeriodStart.HasValue ? "vs period starting " + x.PrevPeriodStart.Value.ToString("yyyy-MM-dd") : "no earlier priced period in range")">@Html.Raw(PctChange(x.ChangePct))</td>
                             </tr>
                         }
                         @if (Model.Data.ProductPeriods.Count == 0)
@@ -315,10 +326,13 @@
                                     }
                                     else
                                     {
-                                        <span class="pill p-warn">NOT RECEIVED</span>
+                                        <span class="pill @(s.PriceStatus == "NO PO LINES" ? "p-neu" : "p-warn")">@s.PriceStatus</span>
                                     }
                                 </td>
-                                <td class="n mono">@Html.Raw(PerKg(s.InventoryCostedPerKg))</td>
+                                <td class="n mono">@Html.Raw(PerKg(s.InventoryCostedPerKg))@if (s.ReconQtyDiffers)
+                                    {
+                                        <span class="pill p-warn" title="ERP recon quantity @s.ReconQty?.ToString("#,##0.000") vs @Kg(s.ReceivedKg) kg received on the PO">qty</span>
+                                    }</td>
                                 <td><span class="pill @LinkPill(s.LinkCheck)">@s.LinkCheck</span></td>
                             </tr>
                         }
@@ -332,9 +346,9 @@
         </div>
         @if (Model.LinkDiffers > 0)
         {
-            <div class="spc-note" style="margin-top:8px">@Model.LinkDiffers shipment@(Model.LinkDiffers == 1 ? "" : "s") show
-                <span class="pill p-warn">DIFFERS</span>: this report and the ERP's Item Costing Recon link different invoice
-                totals to the same PO. Check the linked invoices before trusting that shipment's ₱/kg.</div>
+            <div class="spc-note" style="margin-top:8px">@Model.LinkDiffers shipment@(Model.LinkDiffers == 1 ? " shows" : "s show")
+                <span class="pill p-warn">DIFFERS</span>: this report and the ERP's Item Costing Recon link a different number
+                of invoices, or a different invoice total, to the same PO. Check the linked invoices before trusting that shipment's ₱/kg.</div>
         }
     </div>
 </div>

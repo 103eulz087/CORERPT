@@ -72,21 +72,28 @@ public sealed class PriceShipmentRow
     public decimal? SupplierPricePerKg { get; set; }
     public decimal? AddOnPerKg { get; set; }
     public decimal? LandedCostPerKg { get; set; }      // null when nothing received yet
-    public string PriceStatus { get; set; } = "";      // PRICED / NOT RECEIVED
+    public string PriceStatus { get; set; } = "";      // PRICED / INCOMPLETE / NOT RECEIVED / NO PO LINES
 
     /* ---- Cross-check against sp_rpt_ItemCostingRecon_List, filled in by
        SupplierPriceService (NOT returned by sp_rpt_SupplierPriceComparison). ---- */
 
-    /// <summary>Recon's TotalCostIncorporated: the part of the invoices
-    /// actually capitalised to inventory, per unit. Null when the recon has
-    /// no row for this shipment or was unavailable.</summary>
+    /// <summary>Recon's TotalInventoryCost (the part of the invoices
+    /// actually capitalised to inventory) divided by THIS row's ReceivedKg,
+    /// so it sits on the same quantity base as LandedCostPerKg. Null when
+    /// the recon has no row for this shipment or was unavailable.</summary>
     public decimal? InventoryCostedPerKg { get; set; }
 
     /// <summary>Recon's TotalInvoiceAmount for the same shipment.</summary>
     public decimal? ReconInvoiceAmount { get; set; }
 
-    /// <summary>MATCHES / DIFFERS / NOT IN RECON / UNAVAILABLE — whether this
-    /// report found the same invoices the ERP recon links to the shipment.</summary>
+    /// <summary>Recon's TotalQty (Inventory.Quantity over the shipment's lots).</summary>
+    public decimal? ReconQty { get; set; }
+
+    public bool ReconQtyDiffers => ReconQty.HasValue && Math.Abs(ReconQty.Value - ReceivedKg) > 0.001m;
+
+    /// <summary>MATCHES / DIFFERS / NOT IN RECON / DUPLICATE IN RECON /
+    /// UNAVAILABLE — whether this report found the same invoices (count and
+    /// total) the ERP recon links to the shipment.</summary>
     public string LinkCheck { get; set; } = "";
 }
 
@@ -201,6 +208,9 @@ public sealed class SupplierPriceViewModel
     /* ---- KPI tiles (priced shipments only unless noted) ---- */
     public int PricedShipments { get; set; }
     public int NotReceivedShipments { get; set; }
+    /// <summary>Kilos received but no invoice from the PO supplier yet.</summary>
+    public int IncompleteShipments { get; set; }
+    public int NoPoLineShipments { get; set; }
     public int MixedShipments { get; set; }
     public decimal ReceivedKg { get; set; }
     public decimal TotalLandedAmount { get; set; }

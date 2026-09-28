@@ -57,7 +57,9 @@
       Monday) mod 7, so the result does not depend on @@DATEFIRST.
       Date range: >= @DateFrom AND < DATEADD(DAY,1,@DateTo) (Hard Rule #4).
 
-   2. QUANTITY = RECEIVED kg (PODETAILS.ActualQuantity), not ordered. The
+   2. QUANTITY = RECEIVED kg (PODETAILS.ActualQuantity), not ordered.
+      (See PriceStatus in result set 1: NO PO LINES / NOT RECEIVED /
+      INCOMPLETE rows are listed but never priced or averaged.) The
       pesos pay for what arrived. A shipment with linked invoices but 0
       received kg (not yet received) is still listed, with a NULL ₱/kg and
       PriceStatus = 'NOT RECEIVED', and is left out of every weighted
@@ -219,10 +221,16 @@ BEGIN
            OR EXISTS (SELECT 1 FROM #Branch AS b WHERE b.BranchCode = CAST(ps.BranchCode AS varchar(5))))
       AND (@FilterSupplier = 0
            OR EXISTS (SELECT 1 FROM #SupplierFilter AS sf WHERE sf.SupplierID = LTRIM(RTRIM(ps.SupplierID))))
+      /* Product filter keeps only shipments whose EVERY line is that
+         product. A shipment that also carries other cuts would put their
+         kilos and pesos under a product-filtered heading (review #5). */
       AND (@ProductCode IS NULL
-           OR EXISTS (SELECT 1 FROM dbo.PODETAILS AS pdx
-                      WHERE pdx.ShipmentNo = ps.ShipmentNo
-                        AND LTRIM(RTRIM(pdx.OrderCode)) = @ProductCode));
+           OR (EXISTS (SELECT 1 FROM dbo.PODETAILS AS pdx
+                       WHERE pdx.ShipmentNo = ps.ShipmentNo
+                         AND LTRIM(RTRIM(pdx.OrderCode)) = @ProductCode)
+               AND NOT EXISTS (SELECT 1 FROM dbo.PODETAILS AS pdy
+                               WHERE pdy.ShipmentNo = ps.ShipmentNo
+                                 AND LTRIM(RTRIM(pdy.OrderCode)) <> @ProductCode)));
 
     /* ---- 2. PO lines per shipment/product -------------------------------- */
     CREATE TABLE #Line
@@ -370,7 +378,19 @@ BEGIN
         SupplierPricePerKg = CAST(CASE WHEN a.ReceivedKg > 0 THEN a.SupplierInvoiceAmount / a.ReceivedKg END AS decimal(18,4)),
         AddOnPerKg         = CAST(CASE WHEN a.ReceivedKg > 0 THEN a.AddOnAmount / a.ReceivedKg END AS decimal(18,4)),
         LandedCostPerKg    = CAST(CASE WHEN a.ReceivedKg > 0 THEN a.TotalLandedAmount / a.ReceivedKg END AS decimal(18,4)),
-        PriceStatus        = CASE WHEN a.ReceivedKg > 0 THEN 'PRICED' ELSE 'NOT RECEIVED' END
+        /* Order matters, first match wins:
+             NO PO LINES   no PODETAILS rows at all (e.g. the DELIVERED
+                           migration batch, sql/19) — nothing to divide by;
+             NOT RECEIVED  PO lines exist but 0 kg received yet;
+             INCOMPLETE    kilos received but NO invoice from the PO
+                           supplier linked yet (only freight/broker so far,
+                           or the supplier invoice is booked under another
+                           SupplierID) — its ₱/kg would look far too cheap;
+             PRICED        usable. Only PRICED rows enter result sets 2/3. */
+        PriceStatus        = CASE WHEN a.ProductCount = 0          THEN 'NO PO LINES'
+                                  WHEN a.ReceivedKg <= 0           THEN 'NOT RECEIVED'
+                                  WHEN a.SupplierInvoiceAmount = 0 THEN 'INCOMPLETE'
+                                  ELSE 'PRICED' END
     FROM #Ship AS s
     JOIN #ShipAgg AS a ON a.ShipmentNo = s.ShipmentNo
     OUTER APPLY (SELECT TOP (1) b.BranchName FROM dbo.Branches AS b
@@ -397,11 +417,12 @@ BEGIN
             SupplierInvoiceAmount = SUM(a.SupplierInvoiceAmount),
             AddOnAmount           = SUM(a.AddOnAmount),
             TotalLandedAmount     = SUM(a.TotalLandedAmount),
-            MinShipmentPerKg      = MIN(a.TotalLandedAmount / a.ReceivedKg),
-            MaxShipmentPerKg      = MAX(a.TotalLandedAmount / a.ReceivedKg)
+            MinShipmentPerKg      = MIN(a.TotalLandedAmount / NULLIF(a.ReceivedKg, 0)),
+            MaxShipmentPerKg      = MAX(a.TotalLandedAmount / NULLIF(a.ReceivedKg, 0))
         FROM #Ship AS s
         JOIN #ShipAgg AS a ON a.ShipmentNo = s.ShipmentNo
         WHERE a.ReceivedKg > 0
+          AND a.SupplierInvoiceAmount > 0          -- PRICED only, see PriceStatus
         GROUP BY s.PeriodStart, s.SupplierID
     ),
     SP2 AS
@@ -476,6 +497,7 @@ BEGIN
         FROM #Ship AS s
         JOIN #ShipAgg AS a ON a.ShipmentNo = s.ShipmentNo
         WHERE a.ReceivedKg > 0
+          AND a.SupplierInvoiceAmount > 0          -- PRICED only, see PriceStatus
           AND a.ProductCount = 1
           AND a.SingleProductCode IS NOT NULL
         GROUP BY s.PeriodStart, a.SingleProductCode, s.SupplierID
@@ -584,6 +606,21 @@ GO
    EXEC dbo.sp_rpt_SupplierPriceComparison '2026-01-01', '2026-09-30', 'M';
    EXEC dbo.sp_rpt_ItemCostingRecon_List NULL, NULL, '10955', 1;
 
+   -- E. Gross vs net (Hard Rule #8). If Amount were net of withholding,
+   --    this gap would be ~1-2% of Amount on paid rows. Expect ~0.
+   SELECT TOP (20) ReferenceNumber, Amount, Balance, AmountPaid, EWTWithheld,
+          DiscountWithheld, OffsetWithheld,
+          Gap = Amount - (Balance + AmountPaid + ISNULL(EWTWithheld,0)
+                          + ISNULL(DiscountWithheld,0) + ISNULL(OffsetWithheld,0))
+   FROM dbo.ExpenseSummary WHERE ShipmentNo <> '' AND AmountPaid > 0
+   ORDER BY ABS(Amount - (Balance + AmountPaid + ISNULL(EWTWithheld,0)
+                + ISNULL(DiscountWithheld,0) + ISNULL(OffsetWithheld,0))) DESC;
+
+   -- F. Is the goods cost ever booked in trade AP (APAccounts) instead of
+   --    ExpenseSummary? sql/19 saw APAccounts rows per ShipmentNo. If
+   --    APAccounts carries nonzero goods amounts for these POs, this report
+   --    is missing the goods cost and shows only add-ons (INCOMPLETE rows).
+
    VERIFY LIVE (could not be read in the authoring session):
    1. SELECT DISTINCT Status FROM dbo.ExpenseSummary — confirm which value(s)
       mean cancelled/voided and tighten the NOT LIKE filter to them.
@@ -596,4 +633,7 @@ GO
       lands in ADD-ON, the split needs a different rule (e.g. an expense-
       type or account code), and the total is unaffected.
    4. dbo.Branches.BranchCode type vs POSUMMARY.BranchCode char(3).
+   5. Supplier discounts (DiscountWithheld) are NOT deducted: Amount is the
+      invoice before any payment-time discount. Confirm with Accounting
+      whether a discount taken should lower the landed cost.
 ============================================================================ */

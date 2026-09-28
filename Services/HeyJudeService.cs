@@ -237,7 +237,7 @@ public sealed class HeyJudeService
             "landed (supplier invoice + freight/broker/customs add-ons, divided by kilos received), " +
             "for POs ORDERED in a date range, optionally bucketed by period (weekly/monthly/yearly). " +
             "Use for \"cheapest supplier\", \"supplier price per kilo\", \"compare supplier prices\", " +
-            "\"landed cost per kg by supplier\", \"did supplier X get more expensive\" questions. " +
+            "\"landed cost per kg by supplier\", \"are supplier prices going up\" questions. " +
             "NOT item_costing_recon (that asks whether inventory is carried at the right cost, not " +
             "which supplier is cheaper) and NOT ap_top_suppliers (that is money we still owe). " +
             "branch_code optional (receiving branch); top_n optional.\n\n" +
@@ -912,11 +912,16 @@ public sealed class HeyJudeService
 
                 var ranked = SupplierPriceService.RollUpBySupplier(data.Shipments);
                 var notReceived = data.Shipments.Count(s => s.PriceStatus == "NOT RECEIVED");
+                var incomplete = data.Shipments.Count(s => s.PriceStatus == "INCOMPLETE");
+                var unposted = data.Shipments.Where(s => s.PriceStatus == "PRICED").Sum(s => s.UnpostedExpenseCount);
+                var branchLabel = filter.BranchCodes.Count > 0 ? $" (branch {string.Join(", ", filter.BranchCodes)})" : "";
                 if (ranked.Count == 0)
                 {
                     answer = $"No POs ordered {filter.PeriodLabel} have both linked invoices and received kilos, " +
                              "so there's no landed cost per kilo to compare yet" +
-                             (notReceived > 0 ? $" ({notReceived} have invoices but nothing received)." : ".");
+                             (notReceived + incomplete > 0
+                                 ? $" ({notReceived} have invoices but nothing received, {incomplete} have kilos but no invoice from the PO supplier yet)."
+                                 : ".");
                     break;
                 }
 
@@ -933,7 +938,7 @@ public sealed class HeyJudeService
                     $"{i + 1}. {r.SupplierName} {PerKg(r.LandedCostPerKg)} ({r.ReceivedKg:N0} kg)"));
 
                 answer = $"Landed cost per kilo by supplier for POs ordered {filter.PeriodLabel}" +
-                         (filter.BranchCodes.Count > 0 ? $" (branch {filter.BranchCodes[0]})" : "") +
+                         branchLabel +
                          $": {ranked.Count} supplier{(ranked.Count == 1 ? "" : "s")}, {shipments} priced " +
                          $"shipment{(shipments == 1 ? "" : "s")}, {totalKg:N0} kg, weighted average " +
                          $"{PerKg(totalKg == 0 ? 0 : totalLanded / totalKg)}. Cheapest first — {list}." +
@@ -942,18 +947,24 @@ public sealed class HeyJudeService
                              : "") +
                          " These are actual landed costs paid (supplier invoice plus freight/broker/customs " +
                          "add-ons, divided by kilos received), not quotations, and on the invoice basis, so " +
-                         "they include any recoverable VAT." +
+                         "they include any recoverable VAT. This ranking compares whatever each supplier " +
+                         "shipped, so a beef supplier is ranked against a pork supplier; use the By product " +
+                         "table on the page for a like-for-like comparison. The latest period may still be " +
+                         "missing freight or customs invoices." +
                          (mixed > 0
                              ? $" {mixed} of those shipments mixed several products into one blended ₱/kg, so " +
                                "compare suppliers like-for-like in the By product table before drawing conclusions."
                              : "") +
                          (notReceived > 0 ? $" {notReceived} shipment{(notReceived == 1 ? " has" : "s have")} invoices but nothing received yet, left out." : "") +
-                         $" The {grain.Label().ToLowerInvariant()} breakdown is on the Supplier Price Comparison page.";
+                         (incomplete > 0 ? $" {incomplete} shipment{(incomplete == 1 ? " has" : "s have")} kilos but no invoice from the PO supplier yet, left out so they don't look artificially cheap." : "") +
+                         (unposted > 0 ? $" {unposted} of the invoices counted aren't posted to the GL yet." : "") +
+                         PeriodMovement(data.SupplierPeriods, grain) +
+                         $" The {grain.Label().ToLowerInvariant()} breakdown by supplier is on the Supplier Price Comparison page.";
 
                 chart = new ChartSeries
                 {
                     Type = "bar",
-                    Title = $"Landed ₱/kg by supplier, cheapest first — {filter.PeriodLabel}",
+                    Title = $"Landed ₱/kg by supplier, cheapest first — {filter.PeriodLabel}{branchLabel}",
                     ValueLabel = "₱ per kg",
                     Labels = shown.Select(r => r.SupplierName).ToList(),
                     Values = shown.Select(r => Math.Round(r.LandedCostPerKg, 2)).ToList()
@@ -1080,6 +1091,35 @@ public sealed class HeyJudeService
     }
 
     private static string Peso(decimal v) => "₱" + v.ToString("N2", CultureInfo.InvariantCulture);
+
+    /// <summary>All-supplier weighted ₱/kg in the first vs the last period
+    /// of the range, from result set 2's own sums (never an average of
+    /// per-supplier rates). Empty when fewer than two periods have data.</summary>
+    private static string PeriodMovement(IReadOnlyList<SupplierPeriodRow> rows, PricePeriod grain)
+    {
+        var byPeriod = rows
+            .GroupBy(r => r.PeriodStart)
+            .OrderBy(g => g.Key)
+            .Select(g => new
+            {
+                Label = g.First().PeriodLabel,
+                Kg = g.Sum(r => r.ReceivedKg),
+                Amt = g.Sum(r => r.TotalLandedAmount)
+            })
+            .Where(p => p.Kg > 0)
+            .ToList();
+        if (byPeriod.Count < 2)
+            return "";
+
+        var first = byPeriod[0];
+        var last = byPeriod[^1];
+        var a = first.Amt / first.Kg;
+        var b = last.Amt / last.Kg;
+        var pct = a == 0 ? 0 : (b - a) * 100m / a;
+        return $" {grain.Label()} view: the all-supplier weighted landed cost went from {PerKg(a)} in " +
+               $"{first.Label} to {PerKg(b)} in {last.Label} ({(pct >= 0 ? "+" : "")}{pct:N1}%). That " +
+               "movement mixes product mix, freight and the peso rate, not just supplier pricing.";
+    }
 
     private static string PerKg(decimal v) => "₱" + v.ToString("N2", CultureInfo.InvariantCulture) + "/kg";
 }
