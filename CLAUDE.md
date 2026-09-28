@@ -1,4 +1,8 @@
-# CLAUDE.md — CORE Reporting Portal
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+# CORE Reporting Portal
 
 Project memory for Claude Code. Read this first, every session.
 
@@ -62,7 +66,9 @@ No test project exists yet. `dotnet run` uses the `DevAuth` stub in
 (`exec`/`acct`/`audit`/`admin`) mapped to department roles. `Program.cs`
 refuses to start if `DevAuth:Enabled` is true outside Development, or if the
 `Erp` connection string is missing — both are fail-fast startup guards, not
-bugs to work around.
+bugs to work around. Hey Jude calls the Anthropic API via a typed
+`HttpClient` registered in `Program.cs`; with no `Anthropic:ApiKey`
+configured it degrades to a friendly message instead of failing startup.
 
 ---
 
@@ -110,7 +116,11 @@ Two tiers, same SQL Server (`corex.itcoreapps.com`):
   writes/DDL require confirmation every time.
 
 **Retired 2026-09-27: `CORECSERP_002_DEV`.** Was the original default dev
-tier; superseded by `COREX001` per the developer's explicit instruction. Do
+tier; superseded by `COREX001` per the developer's explicit instruction.
+**This file wins over stale copies:** as of 2026-09-28 `README.md`,
+`.claude/agents/db-report-engineer.md`, and the `db-change-protocol`,
+`new-report-module` and `aging-sp-pattern` skills still name
+`CORECSERP_002_DEV` as the default target — read those as `COREX001`. Do
 not create new objects there going forward — if you find yourself about to,
 that's a sign of working from a stale assumption; check with the developer.
 
@@ -204,7 +214,7 @@ cutoffs plus an automatic footing assertion) is open follow-up work, not done.
 ## Project layout
 
 ```
-CoreReporting/
+(repo root)
   CLAUDE.md                     this file
   .claude/
     db.local.md                 GITIGNORED — real credentials
@@ -227,7 +237,7 @@ Two repository read styles coexist by design:
 - **Typed DTOs** (`Models/ReportModels.cs`, `AccountingModels.cs`) for
   dashboards with a fixed, known shape (Executive Overview, aging summaries).
 - **Generic result sets** (`ReportRunResult` in `Models/ReportCenterModels.cs`)
-  for the Report Center: `RunReportAsync` reads any of the 7 catalog procs
+  for the Report Center: `RunReportAsync` reads any `ReportCatalog` proc
   column-by-column (name + type tag + value) into `ReportResultSet` rows,
   rendered by one generic Grid/Statement/PivotStatement view instead of a
   typed class per report. Extending the Report Center means adding a
